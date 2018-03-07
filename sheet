@@ -1,0 +1,69 @@
+import clr
+clr.AddReference('ProtoGeometry')
+from Autodesk.DesignScript.Geometry import *
+
+# Import ToDSType(bool) extension method
+clr.AddReference("RevitNodes")
+import Revit
+clr.ImportExtensions(Revit.Elements)
+
+# Import DocumentManager and TransactionManager
+clr.AddReference("RevitServices")
+import RevitServices
+from RevitServices.Persistence import DocumentManager
+from RevitServices.Transactions import TransactionManager
+
+from System.Collections.Generic import *
+
+# Import RevitAPI
+clr.AddReference("RevitAPI")
+import Autodesk
+from Autodesk.Revit.DB import *
+
+doc = DocumentManager.Instance.CurrentDBDocument
+uiapp = DocumentManager.Instance.CurrentUIApplication
+app = uiapp.Application
+
+#The inputs to this node will be stored as a list in the IN variable.
+dataEnteringNode = IN
+
+titleBlockTypeId = IN[0]
+sheetNumbers = IN[1]
+sheetNames = IN[2]
+dList = IN[3]
+param1 = IN[4]
+dListFilter = IN[5]
+param2 = IN[6]
+dListGroup = IN[7]
+param3 = IN[8]
+# "Start" the transaction
+TransactionManager.Instance.EnsureInTransaction(doc)
+
+sheets = []
+for i, j, k, l, m in zip(sheetNames, sheetNumbers, dList, dListFilter, dListGroup):
+	#create new sheet
+	newSheet = ViewSheet.Create(doc, titleBlockTypeId[0])
+	#set sheet name param
+	bipName = BuiltInParameter.SHEET_NAME
+	sheetName = newSheet.get_Parameter(bipName)
+	sheetName.Set(i)
+	#set sheet number param
+	bipNumber = BuiltInParameter.SHEET_NUMBER
+	sheetNumber = newSheet.get_Parameter(bipNumber)
+	sheetNumber.Set(j)
+	#set issuance for drawing list parameter
+	dListParam = newSheet.get_Parameter(param1)
+	dListParam.Set(k)
+	#set DRAWING LIST FILTER
+	dListFilterParam = newSheet.get_Parameter(param2)
+	dListFilterParam.Set(l)
+	#set drawing list group
+	dListGroupParam = newSheet.get_Parameter(param3)
+	dListGroupParam.Set(m)
+	#collect all newly created sheets
+	sheets.append(newSheet)
+# "End" the transaction
+TransactionManager.Instance.TransactionTaskDone()
+
+#Assign your output to the OUT variable
+OUT = sheets
