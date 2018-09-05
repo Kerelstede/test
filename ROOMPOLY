@@ -1,0 +1,424 @@
+'--------------------------------------------------------------------------------------------
+'--- BEGIN SUBROUTINES-----------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+
+Dim Layerstate() As Variant
+Dim Layerstate_count As Integer
+Dim WB_drawingpath, WB_drawingname As String
+Dim ACH_drawingfullpath As String
+Dim ACH_drawingpath As String
+
+Private Declare PtrSafe Function CopyFile Lib "kernel32" _
+  Alias "CopyFileA" (ByVal lpExistingFileName As String, _
+  ByVal lpNewFileName As String, ByVal bFailIfExists As Long) _
+  As Long
+
+
+
+Function removeSS(SS As AcadSelectionSet)
+'VERWIJDEREN VAN SELECTIONSET
+SS.Clear
+  
+SS.Delete
+
+Set SS = Nothing
+
+End Function
+
+
+Public Function PointInPpolyline(po As Variant, ent As AcadEntity) As Boolean
+'Function : PointInPpolyline
+'LastUpdt : Mar.1,2004.
+'
+'1. Input - X,Y,Z Point Array and closed LWPolyline
+'2. Function create AcadRay and ask inresection between AcadRay and polyline
+'3. Output TRUE if inside or FALSE if outside
+
+Dim TempRay As AcadRay
+Dim po0, inters As Variant
+Dim i As Integer
+ReDim po0(2) As Double
+Dim Ang As Double
+
+po0(0) = 0: po0(1) = 0: po0(2) = 0
+For i = 0 To 10
+    Set TempRay = ThisDrawing.ModelSpace.AddRay(po, po0) ' Create new AcadRay
+    Ang = dtr(i * 11.5)
+    TempRay.Rotate po, Ang
+    inters = TempRay.IntersectWith(ent, acExtendNone)
+    TempRay.Delete 'Delete new AcadRay
+    
+    If UBound(inters) < 0 Then
+        PointInPpolyline = False
+    Exit For
+    
+    ElseIf (UBound(inters) + 1) / 3 Mod 2 < 0 Then 'ALS POINT ERIN EN EROP MOET LIGGEN
+   
+    ElseIf (UBound(inters) + 1) / 3 Mod 2 <= -100 Then  'ALS POINT ERIN MOET LIGGEN
+        PointInPpolyline = False
+        Set inters = Nothing
+        Else
+        PointInPpolyline = True
+        Exit For
+    End If
+Next
+
+End Function
+
+
+Sub VUL_IN_LOKAAL_VIA_PLINE2()
+
+
+''On Error Resume Next
+
+Dim FilterType1(2) As Integer
+Dim FilterData1(2) As Variant
+Dim FilterType2(0) As Integer
+Dim FilterData2(0) As Variant
+Dim ssetpline As AcadSelectionSet
+Dim i, i1, i2, j, k1, k2, l, m, count, count1, count2, countINFOLOKAALX, INFOLOKAALXbestaat As Integer
+Dim blockname, deeltemp, lokaaltemp, BLOCKNAMEtemp As String
+Dim AttList, AttList2 As Variant
+Dim point1(0 To 2) As Double
+Dim point2(0 To 2) As Double
+Dim tempxwaarde As String
+Dim tempywaarde As String
+
+Dim objLWPline As AcadLWPolyline
+'Dim objLWPline_off As Variant
+
+Dim objLWPline_temp As AcadLWPolyline
+Dim objSSet As AcadSelectionSet
+Dim objSSetIP As AcadSelectionSet
+Dim dblCurCords() As Double
+Dim dblNewCords() As Double
+Dim iMaxCurArr, iMaxNewArr As Integer
+Dim iCurArrIdx, iNewArrIdx, iCnt As Integer
+Dim addObject(0) As AcadEntity
+Dim INFOLOKAALXtemp As AcadEntity
+Dim blockinsertionpoint As Variant
+Dim blklayer As AcadLayer
+Dim blklayername As String
+Dim blk As AcadBlock
+Dim OPPPLINE, OPPPLINEtemp, hoogtetemp, vphoogtetemp, VOLUMEtemp As Double
+
+
+
+'INFO
+ThisDrawing.Utility.prompt "VUL_IN_LOKAALNAAM_VIA_PLINE" & vbCrLf
+
+'ZoomAll
+
+ThisDrawing.Utility.prompt "SELECTEER PLINES:" & vbCrLf
+
+
+'SELECTIONSET "SS_PLINE"AANMAKEN
+'--BEGIN ERROR HANDLING SELECTION SET
+Set ssetpline = makeSS("SS_PLINE") 'SS_PLINE OMVAT ENKEL PLINES
+
+'FILTEREN OP PLINES
+FilterType1(0) = 0
+FilterData1(0) = "LWPolyline"
+
+'FILTER OP PLINES DIE GESLOTEN ZIJN
+FilterType1(1) = 70
+FilterData1(1) = 1
+
+'FILTER OP PLINES DIE OP LAYER: VBA-PLINE STAAN
+FilterType1(2) = 8
+FilterData1(2) = "VBA-PLINE"
+
+ssetpline.SelectOnScreen FilterType1, FilterData1
+
+If ssetpline.count = 0 Then
+    ThisDrawing.Utility.prompt vbCrLf & "ER IS GEEN POLYLINE GESELECTEERD" & vbCrLf
+    ThisDrawing.Utility.prompt "INFO: POLYLINE DIENT OP LAYER: VBA-PLINE TE STAAN" & vbCrLf
+Exit Sub
+End If
+
+'-- BEGIN OPVRAGEN VECTOR VERPLAATSING --'
+'ThisDrawing.Utility.prompt "GEEF VECTOR IN OM INGEVULDE BLOCKS TE VERPLAATSEN: " & vbCrLf
+
+'tempxwaarde = ThisDrawing.Utility.GetString(0, "X-WAARDE?<500000>: ")
+'--BEGIN FOUTCODE ALS JE NIKS INVULT--
+'If tempxwaarde = "" Then
+    'tempxwaarde = 500000
+'End If
+'--EINDE FOUTCODE ALS JE NIKS INVULT--
+
+'tempywaarde = ThisDrawing.Utility.GetString(0, "Y-WAARDE?<0>: ")
+'--BEGIN FOUTCODE ALS JE NIKS INVULT--
+'If tempywaarde = "" Then
+    'tempywaarde = 0
+'End If
+'--EINDE FOUTCODE ALS JE NIKS INVULT--
+
+point1(0) = 0: point1(1) = 0: point1(2) = 0
+point2(0) = 300000: point2(1) = 0: point2(2) = 0
+'-- EINDE OPVRAGEN VECTOR VERPLAATSING --'
+
+count = ssetpline.count 'AANTAL PLINES IN SS_PLINE
+
+For i = 0 To count - 1 '(A)
+
+    If ssetpline(i).ObjectName = "AcDbPolyline" Then  '(B) |-- Checking for 2D Polylines --|
+        
+        '(1)--- BEGIN OMZETTEN PLINE VAN 2D COORDINATEN NR 3D COORDINATEN ---
+        Set objLWPline = ssetpline(i)
+        OPPPLINE = objLWPline.Area
+        
+        'Coordinaten opvragen van polyline - 2D
+        dblCurCords = objLWPline.Coordinates
+        iMaxCurArr = UBound(dblCurCords)
+        If iMaxCurArr = 3 Then
+            ThisDrawing.Utility.prompt "The selected polyline should have minimum 2 segments..."
+            Exit Sub
+        Else
+            '|-- The 2D Coordinates are insufficient to use in SelectByPolygon method --|
+            '|-- So convert those into 3D coordinates --|
+            iMaxNewArr = ((iMaxCurArr + 1) * 1.5) - 1   '|-- New array dimension
+            ReDim dblNewCords(iMaxNewArr) As Double
+            iCurArrIdx = 0: iCnt = 1
+            For iNewArrIdx = 0 To iMaxNewArr
+                If iCnt = 3 Then    '|-- The z coordinate is set to 0 --|
+                    dblNewCords(iNewArrIdx) = 0
+                    iCnt = 1
+                Else
+                    dblNewCords(iNewArrIdx) = dblCurCords(iCurArrIdx)
+                    iCurArrIdx = iCurArrIdx + 1
+                    iCnt = iCnt + 1
+                End If
+            Next
+        End If
+        '(1)--- EINDE OMZETTEN PLINE VAN 2D COORDINATEN NR 3D COORDINATEN ---
+        
+        
+        '(2)--- BEGIN BLOCKS BINNEN PLINE IN SS_OBJECTS STOPPEN ---
+        '   --- ALLE BLOCKS ERIN EN ALLE BLOCKS DIE PLINE SNIJDEN ---
+        
+        'SELECTIONSET "SS_OBJECTS"AANMAKEN
+        Set objSSet = makeSS("SS_OBJECTS")
+        
+           
+        'FILTEREN OP BLOCKS
+        FilterType2(0) = 0
+        FilterData2(0) = "INSERT"
+        'ALLE BLOCKS BINNEN PLINE EN DIE PLINE SNIJDEN IN SS_OBJECTS STOPPEN
+        objSSet.SelectByPolygon acSelectionSetCrossingPolygon, dblNewCords, FilterType2, FilterData2
+        '(2)--- EINDE BLOCKS BINNEN PLINE IN SS_OBJECTS STOPPEN ---
+        
+        '(3)--- BEGIN SELECTIONSET SS_OBJECTS FILTEREN EN IN SS_OBJECTSIP OPSLAAN ---
+        '   --- FILTER 1:ENKEL BLOCKS OVERHOUDEN MET ATTRIBUTEN
+        '   --- FILTER 2:EN WAARVAN HUN INSERTIONPOINT IN POLYLINE LIGT
+        '   --- DEZE BLOCKS OPSLAAN IN SS_OBJECTSIP
+            
+        'SELECTIONSET "SS_OBJECTSIP"AANMAKEN
+        Set objSSetIP = makeSS("SS_OBJECTSIP")
+       
+        count1 = objSSet.count 'AANTAL OBJECTEN IN SS_OBJECTS
+     
+        For i1 = 0 To count1 - 1
+            If objSSet(i1).ObjectName = "AcDbBlockReference" Then
+                If objSSet(i1).HasAttributes Then 'BLOCK MOET ATTRIBUTEN HEBBEN - DUS XREF UITSLUITEN
+                    blockinsertionpoint = objSSet(i1).InsertionPoint
+                    If PointInPpolyline(blockinsertionpoint, ssetpline(i)) Then 'FILTER 1
+                        'blklayername = objSSet(i1).layer
+                        'Set blklayer = ThisDrawing.Layers.Item(blklayername)
+                        'LAYER VAN BLOCK MOET UNFREEZE - LAYERON - NOT LOCKED ZIJN
+                        'If blklayer.Freeze = False And blklayer.LayerOn = True And blklayer.Lock = False Then
+                            Set addObject(0) = objSSet(i1)
+                            objSSetIP.AddItems addObject
+                        'End If
+                    End If
+                End If
+            End If
+        Next i1
+        
+        '--- BEGIN TESTCODE ---
+        ThisDrawing.Utility.prompt "AANTAL SS_OBJECTS:" & count1 & vbCrLf ''TEST
+        count1 = objSSetIP.count
+        ThisDrawing.Utility.prompt "AANTAL SS_OBJECTSIP:" & count1 & vbCrLf ''TEST
+        '--- EINDE TESTCODE ---
+            
+        '(3)--- EINDE SELECTIONSET SS_OBJECTS FILTEREN EN IN SS_OBJECTSIP OPSLAAN ---
+            
+        '(4)--- BEGIN KIJKEN OF SELECTIONSET SS_OBJECTSIP SLECHTS 1x HET BLOCK: INFOLOKAALX BEVAT ---
+        count2 = objSSetIP.count 'AANTAL OBJECTEN IN SS_OBJECTSIP
+        countINFOLOKAALX = 0
+        INFOLOKAALXbestaat = 0
+        
+        'TELLEN HOEVEEL KEER BLOCK:INFOLOKAALX VOORKOMT
+        For j = 0 To count2 - 1
+            If objSSetIP(j).Name = "INFOLOKAALX" Then
+            
+                countINFOLOKAALX = countINFOLOKAALX + 1
+                Set INFOLOKAALXtemp = objSSetIP(j)
+            End If
+        Next j
+        
+        
+        
+        If countINFOLOKAALX = 0 Then
+            ThisDrawing.Utility.prompt "NOK: PLINE BEVAT BLOCK:INFOLOKAALX NIET" & vbCrLf
+        End If
+        If countINFOLOKAALX > 1 Then
+            ThisDrawing.Utility.prompt "NOK: PLINE BEVAT BLOCK:INFOLOKAALX MEERDERE KEREN" & vbCrLf
+        End If
+        If countINFOLOKAALX = 1 Then
+            ThisDrawing.Utility.prompt "OK: PLINE BEVAT BLOCK:INFOLOKAALX 1X" & vbCrLf
+            INFOLOKAALXbestaat = 1
+        End If
+
+                
+        '(4)--- EINDE KIJKEN OF SELECTIONSET SS_OBJECTSIP SLECHTS 1x HET BLOCK: INFOLOKAALX BEVAT ---
+            '-- KIJKEN OP PLINE EEN BLOCK:INFOLOKAALX BEVAT --
+            
+            
+        '(5)--- BEGIN UITLEZEN ATTRIBUTEN VAN BLOCK: INFOLOKAALX EN ATTRIBUTEN OPP EN VOL (INDIEN HOOGTE BESTAAT) INVULLEN  ---
+            
+        If INFOLOKAALXbestaat = 1 Then
+            AttList = INFOLOKAALXtemp.GetAttributes
+            'UITLEZEN VAN LOKAAL EN HOOGTE
+            For k1 = LBound(AttList) To UBound(AttList)
+
+                Select Case AttList(k1).TagString
+                     
+                    Case "OPPERVLAKTE"
+                        OPPPLINEtemp = Format$((OPPPLINE / 1000000), "0.00")
+                        AttList(k1).TextString = OPPPLINEtemp
+                        ThisDrawing.Utility.prompt "OPPERVLAKTE LOKAAL: ----- " & OPPPLINEtemp & vbCrLf
+
+                    Case "VP_HOOGTE"
+                        vphoogtetemp = AttList(k1).TextString
+                        ThisDrawing.Utility.prompt "VP_HOOGTE LOKAAL: ----- " & vphoogtetemp & vbCrLf
+
+    
+                End Select
+    
+            Next k1
+            
+            k1 = 0
+            
+                For k1 = LBound(AttList) To UBound(AttList)
+
+                Select Case AttList(k1).TagString
+                     
+                    Case "OPPERVLAKTE"
+                        AttList(k1).TextString = OPPPLINEtemp
+                        ThisDrawing.Utility.prompt "OPPERVLAKTE LOKAAL: ----- " & OPPPLINEtemp & vbCrLf
+                    Case "LOKAAL"
+                        lokaaltemp = AttList(k1).TextString
+                        ThisDrawing.Utility.prompt "LOKAAL: ----- " & lokaaltemp & vbCrLf
+                    Case "DEEL"
+                        deeltemp = AttList(k1).TextString
+                        ThisDrawing.Utility.prompt "DEEL: ----- " & deeltemp & vbCrLf
+                    Case "HOOGTE"
+                        hoogtetemp = AttList(k1).TextString
+                        ThisDrawing.Utility.prompt "HOOGTE LOKAAL: ----- " & hoogtetemp & vbCrLf
+                    Case "VP_HOOGTE"
+                        vphoogtetemp = AttList(k1).TextString
+                        ThisDrawing.Utility.prompt "VP_HOOGTE LOKAAL: ----- " & vphoogtetemp & vbCrLf
+
+                    Case "VOLUME"
+                       
+                            VOLUMEtemp = OPPPLINEtemp * vphoogtetemp
+                            AttList(k1).TextString = VOLUMEtemp
+                            ThisDrawing.Utility.prompt "VOLUME LOKAAL: " & VOLUMEtemp & vbCrLf
+                            INFOLOKAALXtemp.Move point1, point2
+                            ThisDrawing.Utility.prompt "INFOLOKAAL IS 300000 VERPLAATST NAAR RECHTS" & vbCrLf
+                            
+                        
+                End Select
+     
+                
+            Next k1
+            
+
+        End If
+
+              
+        '(5)--- EINDE UITLEZEN VAN BLOCK: INFOLOKAALX EN ATTRIBUTEN OPP EN VOL (INDIEN HOOGTE BESTAAT) INVULLEN  ---
+            
+
+        '(6)--- BEGIN IN DE OVERIGE BLOKKEN DE LOKAALNAAM INVULLEN + INGEVULDE BLOKKEN VERPLAATSEN IN X/Y-RICHTING
+        
+        count2 = objSSetIP.count 'AANTAL OBJECTEN IN SS_OBJECTSIP
+        
+        If INFOLOKAALXbestaat = 1 Then
+            For l = 0 To count2 - 1
+                If objSSetIP(l).Name <> "INFOLOKAALX" Then
+                    AttList2 = objSSetIP(l).GetAttributes
+                    For m = LBound(AttList2) To UBound(AttList2)
+                        'WAARDE LOKAALTEMP IN VARIABELE LOKAAL INVULLEN + VERPLAATSEN IN X/Y RICHTING
+                        
+                        
+                Select Case AttList2(m).TagString
+                
+                    Case "DEEL"
+                        AttList2(m).TextString = deeltemp
+                        ThisDrawing.Utility.prompt "DEEL: ***** " & deeltemp & " ***** IS INGEVULD" & vbCrLf
+                    Case "LOKAAL"
+                        AttList2(m).TextString = lokaaltemp
+                        ThisDrawing.Utility.prompt "LOKAAL: ***** " & lokaaltemp & " ***** IS INGEVULD" & vbCrLf
+                    Case "LOKAAL_HOOGTE"
+                        AttList2(m).TextString = hoogtetemp
+                        ThisDrawing.Utility.prompt "HOOGTE LOKAAL: ***** " & hoogtetemp & " ***** IS INGEVULD" & vbCrLf
+                    Case "VP_HOOGTE"
+                        AttList2(m).TextString = vphoogtetemp
+                        ThisDrawing.Utility.prompt "VP HOOGTE LOKAAL: ***** " & vphoogtetemp & " ***** IS INGEVULD" & vbCrLf
+                    Case "VIS_STATE"
+                        BLOCKNAMEtemp = AttList2(m).TextString
+                        
+                        objSSetIP(l).Move point1, point2
+                        objSSetIP(l).Update
+                        
+                        ThisDrawing.Utility.prompt "BLOCK: ---------- " & BLOCKNAMEtemp & " ---------- IS VERPLAATST" & vbCrLf
+                        
+                End Select
+
+                    Next m
+                End If
+            Next l
+        End If
+        
+        removeSS objSSet
+        removeSS objSSetIP
+     
+    End If '(B)
+Next i '(A)
+
+removeSS ssetpline
+
+End Sub
+
+' Convert angle in degrees to radians
+Public Function dtr(a As Double) As Double
+
+dtr = (a / 180) * pi
+
+End Function
+
+Function makeSS(iSSetName As String) As AcadSelectionSet
+'AANMAKEN VAN EEN SELECTIESET
+Dim ssetA As AcadSelectionSet
+
+On Error Resume Next
+Set ssetA = ThisDrawing.SelectionSets.Add(iSSetName)
+If Err.Number <> 0 Then
+    Set ssetA = ThisDrawing.SelectionSets(iSSetName)
+    ssetA.Delete
+    Set ssetA = ThisDrawing.SelectionSets.Add(iSSetName)
+    Err.Clear
+End If
+On Error GoTo 0
+Set makeSS = ssetA
+
+End Function
+
+
+
+'--------------------------------------------------------------------------------------------
+'--- EINDE HOOFDROUTINES-----------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+
+
