@@ -1,0 +1,2533 @@
+'--------------------------------------------------------------------------------------------
+'--- BEGIN ROUTINES XREFCLEAN V3.0-----------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+
+Dim Layerstate() As Variant
+Dim Layerstate_count As Integer
+Dim WB_drawingname As String
+Dim WB_drawingpath As String
+Dim ACH_drawingfullpath As String
+Dim ACH_drawingpath As String
+
+
+
+
+
+
+
+Private Declare PtrSafe Function CopyFile Lib "kernel32" _
+  Alias "CopyFileA" (ByVal lpExistingFileName As String, _
+  ByVal lpNewFileName As String, ByVal bFailIfExists As Long) _
+  As Long
+  
+
+  
+
+
+Sub CHECK_DATE(DATE0)
+If Date > "12-30-20" Then
+MsgBox "Life Expectancy Exceeded", vbCritical
+DATE0 = 0
+Else
+DATE0 = 1
+End
+End If
+End Sub
+
+
+
+
+Function makeSS(SS_Name As String) As AcadSelectionSet
+ThisDrawing.Utility.Prompt "*** MAKESS *** begin ***" & vbCrLf
+ 
+
+'AANMAKEN VAN EEN SELECTIESET
+Dim SS_A As AcadSelectionSet
+
+On Error Resume Next
+Set SS_A = ThisDrawing.SelectionSets.Add(SS_Name)
+If Err.Number <> 0 Then
+    Set SS_A = ThisDrawing.SelectionSets(SS_Name)
+    SS_A.Delete
+    Set SS_A = ThisDrawing.SelectionSets.Add(SS_Name)
+    Err.Clear
+End If
+On Error GoTo 0
+Set makeSS = SS_A
+
+ThisDrawing.Utility.Prompt "*** MAKESS *** end ***" & vbCrLf
+End Function
+
+Sub removeSS(SS As AcadSelectionSet)
+ThisDrawing.Utility.Prompt "*** REMOVESS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** REMOVESS *** begin ***")
+'VERWIJDEREN VAN SELECTIONSET
+Dim SS_temp As AcadSelectionSet
+
+For Each SS_temp In ThisDrawing.SelectionSets
+    If SS_temp.Name = SS.Name Then
+        SS.Clear
+        SS.Delete
+        Exit For
+    End If
+Next SS_temp
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** REMOVESS *** end ***")
+ThisDrawing.Utility.Prompt "*** REMOVESS *** end ***" & vbCrLf
+End Sub
+
+Sub LIST_SS()
+ThisDrawing.Utility.Prompt "*** LIST_SS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LIST_SS *** begin ***")
+'LIJST VAN ALLE SELECTIONSETS IN TEKENING
+Dim SS As AcadSelectionSet
+Dim list As String
+
+For Each SS In ThisDrawing.SelectionSets
+list = list & SS.Name & " " & SS.count & vbCrLf
+Next SS
+
+ThisDrawing.Utility.Prompt "LIST OF SELECTIONSETS:" & vbCrLf
+ThisDrawing.Utility.Prompt list & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LIST_SS *** end ***")
+ThisDrawing.Utility.Prompt "*** LIST_SS *** end ***" & vbCrLf
+End Sub
+
+Sub REMOVE_ALL_SS()
+ThisDrawing.Utility.Prompt "*** REMOVE_ALL_SS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** REMOVE_ALL_SS *** begin ***")
+Dim SS As AcadSelectionSet
+
+For Each SS In ThisDrawing.SelectionSets
+    If SS.Name = "CURRENT" Or SS.Name = "PICKFIRST" Then
+    Else
+        SS.Clear
+        SS.Delete
+    End If
+Next SS
+
+ThisDrawing.Utility.Prompt "ALLE SELECTIONSETS ZIJN VERWIJDERD UITGEZONDERD 'PICKFIRST' EN 'CURRENT'" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** REMOVE_ALL_SS *** end ***")
+ThisDrawing.Utility.Prompt "*** REMOVE_ALL_SS *** end ***" & vbCrLf
+
+End Sub
+
+Sub SAVE_AS_XREF(xrefnaam As String)
+ThisDrawing.Utility.Prompt "*** SAVE_AS_XREF *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SAVE_AS_XREF *** begin ***")
+'USED BY ROUTINE: COPY_INTO_TEMPLATE
+
+Dim MyDocument As AcadDocument
+Dim XREF_drawingname As String
+Dim XREF_drawingpath As String
+
+Set MyDocument = ThisDrawing.Application.ActiveDocument
+
+'naam en path definieren van X-ref
+XREF_drawingname = xrefnaam
+XREF_drawingpath = ACH_drawingpath 'MAIN-VARIABELE
+
+ThisDrawing.Utility.Prompt (XREF_drawingpath & XREF_drawingname) & vbCrLf
+
+ThisDrawing.SaveAs (XREF_drawingpath & XREF_drawingname)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SAVE_AS_XREF *** end ***")
+ThisDrawing.Utility.Prompt "*** SAVE_AS_XREF *** end ***" & vbCrLf
+End Sub
+
+Public Function APIFileCopy(src As String, dest As String, _
+  Optional FailIfDestExists As Boolean) As Boolean
+  ThisDrawing.Utility.Prompt "*** APIFileCopy *** begin ***" & vbCrLf
+  CLEAN_UP_XREF.TextBoxINFO.Text = ("*** APIFileCopy *** begin ***")
+'USED BY ROUTINE: CREATE_BACKUP_FILE
+
+'PURPOSE: COPY FILES
+'PARAMETERS: src: Source File (FullPath)
+            'dest: Destination File (FullPath)
+            'FailIfDestExists (Optional):
+            'Set to true if you don't want to
+            'overwrite the destination file if
+            'it exists
+            'Returns (True if Successful, false otherwise)
+Dim lRet As Long
+lRet = CopyFile(src, dest, FailIfDestExists)
+APIFileCopy = (lRet > 0)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** APIFileCopy *** end ***")
+ThisDrawing.Utility.Prompt "*** APIFileCopy *** end ***" & vbCrLf
+End Function
+
+Sub CREATE_BACKUP_FILE()
+ThisDrawing.Utility.Prompt "*** CREATE_BACKUP_FILE *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** CREATE_BACKUP_FILE *** begin ***")
+Dim MyDocument As AcadDocument
+Dim Copysuccess As Long
+
+'CURRENT FILE
+Dim CF_drawingname As String
+Dim CF_drawingpath As String
+Dim CF_drawingfullpath As String
+
+'BACKUP FILE
+Dim BCKUP_drawingname As String
+Dim BCKUP_drawingpath As String
+Dim BCKUP_drawingfullpath As String
+
+Set MyDocument = ThisDrawing.Application.ActiveDocument
+
+CF_drawingname = MyDocument.Name
+CF_drawingpath = MyDocument.Path & "\"
+CF_drawingfullpath = CF_drawingpath & CF_drawingname
+
+BCKUP_drawingname = "BCKUP_" & MyDocument.Name
+BCKUP_drawingpath = MyDocument.Path & "\"
+BCKUP_drawingfullpath = BCKUP_drawingpath & BCKUP_drawingname
+
+MyDocument.Save
+'ThisDrawing.Regen acActiveViewport
+Copysuccess = APIFileCopy(CF_drawingfullpath, BCKUP_drawingfullpath, False)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** CREATE_BACKUP_FILE *** end ***")
+ThisDrawing.Utility.Prompt "*** CREATE_BACKUP_FILE *** end ***" & vbCrLf
+End Sub
+
+Sub UCS_WORLD()
+ThisDrawing.Utility.Prompt "*** UCS_WORLD *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** UCS_WORLD *** begin ***")
+Dim ucsObj As AcadUCS
+Dim origin(0 To 2) As Double
+Dim xAxisPnt(0 To 2) As Double
+Dim yAxisPnt(0 To 2) As Double
+
+'DEFINIEER UCS COORDINATEN
+origin(0) = 0: origin(1) = 0: origin(2) = 0
+xAxisPnt(0) = 1: xAxisPnt(1) = 0: xAxisPnt(2) = 0
+yAxisPnt(0) = 0: yAxisPnt(1) = 1: yAxisPnt(2) = 0
+
+'OPSLAAN IN VOORGEDEFINEERDE UCS-STELSEL
+Set ucsObj = ThisDrawing.UserCoordinateSystems.Add(origin, xAxisPnt, yAxisPnt, "UCSWORLD")
+
+'UCS OP VOORGEDEFINEERD UCS-STELSEL "UCSWORLD" ZETTEN
+ThisDrawing.ActiveUCS = ucsObj
+
+ThisDrawing.Utility.Prompt "UCS INGESTELD OP WORLD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** UCS_WORLD *** end ***")
+ThisDrawing.Utility.Prompt "*** UCS_WORLD *** end ***" & vbCrLf
+
+End Sub
+
+Sub PLANVIEW_UCSWORLD()
+ThisDrawing.Utility.Prompt "*** PLANVIEW_UCSWORLD *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** PLANVIEW_UCSWORLD *** begin ***")
+Dim vector(0 To 2) As Double
+
+ThisDrawing.ActiveSpace = acModelSpace
+vector(0) = 0: vector(1) = 0: vector(2) = 1
+
+ThisDrawing.ActiveViewport.Direction = vector
+ThisDrawing.ActiveViewport = ThisDrawing.ActiveViewport
+
+ThisDrawing.Utility.Prompt "PLANVIEW INGESTELD OP WORLD UCS" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** PLANVIEW_UCSWORLD *** end ***")
+ThisDrawing.Utility.Prompt "*** PLANVIEW_UCSWORLD *** end ***" & vbCrLf
+End Sub
+
+Sub STORE_LAYERSTATE()
+ThisDrawing.Utility.Prompt "*** STORE_LAYERSTATE *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** STORE_LAYERSTATE *** begin ***")
+'ALLE LAYERS OVERLOPEN EN VOLGENDE WAARDEN OPSLAAN PER LAYER IN TABEL: Layerstate
+'-NAAM
+'-LAYERON   FALSE OR TRUE
+'-FREEZE    FALSE OR TRUE
+'-LOCK      FALSE OR TRUE
+'-LINEWEIGHT
+
+'Dim Layerstate() as Variant        'ingesteld als MAIN-VARIABELE
+'Dim Layerstate_count as Integer    'ingesteld als MAIN-VARIABELE
+
+Dim objLayer As AcadLayer
+Dim i As Integer
+
+Layerstate_count = ThisDrawing.Layers.count
+
+'DEFINEER TABEL #RIJ: 5  #KOLOM:#LAYERS IN TEKENING
+ReDim Preserve Layerstate(0 To 4, Layerstate_count)
+i = 0
+
+For Each objLayer In ThisDrawing.Layers
+        Layerstate(0, i) = objLayer.Name
+        Layerstate(1, i) = objLayer.LayerOn
+        Layerstate(2, i) = objLayer.Freeze
+        Layerstate(3, i) = objLayer.Lock
+        Layerstate(4, i) = objLayer.Lineweight
+        i = i + 1
+Next objLayer
+
+'BEGIN TEST: TOON OPGESLAGEN DATA
+For i = 0 To Layerstate_count - 1
+ThisDrawing.Utility.Prompt i & ": " & Layerstate(0, i) & " / " & Layerstate(1, i) & " / " & Layerstate(2, i) & " / " & Layerstate(3, i) & " / " & Layerstate(4, i) & vbCrLf
+Next i
+'EINDE TEST: TOON OPGESLAGEN DATA
+
+ThisDrawing.Utility.Prompt "STORE LAYERSTATE DONE" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** STORE_LAYERSTATE *** end ***")
+ThisDrawing.Utility.Prompt "*** STORE_LAYERSTATE *** end ***" & vbCrLf
+End Sub
+
+Sub RESTORE_LAYERSTATE_ALL()
+ThisDrawing.Utility.Prompt "*** RESTORE_LAYERSTATE_ALL *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** RESTORE_LAYERSTATE_ALL *** begin ***")
+'ALLE LAYERS OVERLOPEN EN VOLGENDE WAARDEN HERSTELLEN PER LAYER VANUIT TABEL: Layerstate
+'-NAAM
+'-LAYERON   FALSE OR TRUE
+'-FREEZE    FALSE OR TRUE
+'-LOCK      FALSE OR TRUE
+'-LINEWEIGHT
+
+'Dim Layerstate() as Variant 'ingesteld als MAIN-VARIABELE
+'Dim Layerstate_count as Integer    'ingesteld als MAIN-VARIABELE
+
+Dim objLayer As AcadLayer
+Dim i As Integer
+
+Dim inputlayeron As String
+Dim inputfreeze As String
+Dim inputlock As String
+Dim inputlineweight As String
+
+'(1) WAT HERSTELLEN? Y= HERSTELLEN
+inputlayeron = "Y"
+inputlayerfreeze = "Y"
+inputlock = "Y"
+inputlineweight = "Y"
+
+SET_LAYER_XREF_TEMP_CURRENT
+
+For Each objLayer In ThisDrawing.Layers
+    For i = 0 To Layerstate_count - 1
+        If objLayer.Name = Layerstate(0, i) And objLayer.Name <> "XREF_TEMP" Then
+            If inputlayeron = "Y" Then objLayer.LayerOn = Layerstate(1, i)
+            If inputlayerfreeze = "Y" Then objLayer.Freeze = Layerstate(2, i)
+            If inputlock = "Y" Then objLayer.Lock = Layerstate(3, i)
+            If inputlineweight = "Y" Then objLayer.Lineweight = Layerstate(4, i)
+        End If
+    Next i
+Next
+
+ThisDrawing.Utility.Prompt "RESTORE LAYERSTATE ALL DONE" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** RESTORE_LAYERSTATE_ALL *** end ***")
+ThisDrawing.Utility.Prompt "*** RESTORE_LAYERSTATE_ALL *** end ***" & vbCrLf
+End Sub
+
+Sub SET_LAYER_XREF_TEMP_CURRENT()
+ThisDrawing.Utility.Prompt "*** SET_LAYER_XREF_TEMP_CURRENT *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SET_LAYER_XREF_TEMP_CURRENT *** begin ***")
+'KIJKEN OF LAYER "XREF_TEMP" REEDS BESTAAT
+'INDIEN JA: ZET CURRENT
+'INDIEN NEEN: MAAK LAYER "XREF_TEMP" AAN EN ZET CURRENT
+
+Dim newlayer As AcadLayer
+Dim layerbestaat As Integer
+
+layerbestaat = 0
+
+For Each newlayer In ThisDrawing.Layers
+    If newlayer.Name = "XREF_TEMP" Then
+        ThisDrawing.ActiveLayer = newlayer 'ZET LAYER CURRENT
+        layerbestaat = 1
+        ThisDrawing.Utility.Prompt "LAYER: 'XREF TEMP' CURRENT GEZET" & vbCrLf
+    End If
+Next
+
+If layerbestaat = 0 Then
+    Set newlayer = ThisDrawing.Layers.Add("XREF_TEMP") 'CREEER NIEUWE LAYER
+    ThisDrawing.ActiveLayer = newlayer 'ZET LAYER CURRENT
+    ThisDrawing.Utility.Prompt "NIEUWE LAYER: 'XREF TEMP' AANGEMAAKT EN CURRENT GEZET" & vbCrLf
+End If
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SET_LAYER_XREF_TEMP_CURRENT *** end ***")
+ThisDrawing.Utility.Prompt "*** SET_LAYER_XREF_TEMP_CURRENT *** end ***" & vbCrLf
+End Sub
+
+Sub ALL_LAYERS_ON()
+ThisDrawing.Utility.Prompt "*** ALL_LAYERS_ON *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_LAYERS_ON *** begin ***")
+'ALLE LAYERS AANLEGGEN MET UITZONDERING VAN DE CURRENT LAYER: XREF_TEMP
+
+Dim objLayer As AcadLayer
+
+SET_LAYER_XREF_TEMP_CURRENT
+For Each objLayer In ThisDrawing.Layers
+    If objLayer.Name <> "XREF_TEMP" Then
+        objLayer.LayerOn = True
+    End If
+Next objLayer
+''ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALL LAYERS: ON" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_LAYERS_ON *** end ***")
+ThisDrawing.Utility.Prompt "*** ALL_LAYERS_ON *** end ***" & vbCrLf
+End Sub
+
+Sub UNLOCK_ALL_LAYERS()
+ThisDrawing.Utility.Prompt "*** UNLOCK_ALL_LAYERS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** UNLOCK_ALL_LAYERS *** begin ***")
+'ALLE LAYERS UNLOCKEN MET UITZONDERING VAN DE CURRENT LAYER: XREF_TEMP
+
+Dim objLayer As AcadLayer
+
+SET_LAYER_XREF_TEMP_CURRENT
+For Each objLayer In ThisDrawing.Layers
+    If objLayer.Name <> "XREF_TEMP" Then
+        objLayer.Lock = False
+    End If
+Next objLayer
+
+ThisDrawing.Utility.Prompt "ALL LAYERS: UNLOCKED" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** UNLOCK_ALL_LAYERS *** end ***")
+ThisDrawing.Utility.Prompt "*** UNLOCK_ALL_LAYERS *** end ***" & vbCrLf
+End Sub
+
+Sub UNFREEZE_ALL_LAYERS()
+ThisDrawing.Utility.Prompt "*** UNFREEZE_ALL_LAYERS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** UNFREEZE_ALL_LAYERS *** begin ***")
+'ALLE LAYERS UNFREEZEN MET UITZONDERING VAN DE CURRENT LAYER: XREF_TEMP
+
+SET_LAYER_XREF_TEMP_CURRENT
+Dim objLayer As AcadLayer
+
+For Each objLayer In ThisDrawing.Layers
+    If objLayer.Name <> "XREF_TEMP" Then
+        objLayer.Freeze = False
+    End If
+Next
+
+ThisDrawing.Utility.Prompt "ALL LAYERS: UNFROZEN" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** UNFREEZE_ALL_LAYERS *** end ***")
+ThisDrawing.Utility.Prompt "*** UNFREEZE_ALL_LAYERS *** end ***" & vbCrLf
+End Sub
+
+Sub DELETE_FROZEN_LAYERS()
+ThisDrawing.Utility.Prompt "*** DELETE_FROZEN_LAYERS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_FROZEN_LAYERS *** begin ***")
+'ALLE FROZEN LAYERS VERWIJDEREN
+'MET UITZONDERING VAN DE CURRENT LAYER: XREF_TEMP
+'MET UITZONDERING VAN LAYERS IN EEN XREF
+
+Dim objLayer As AcadLayer
+Dim myString As String
+Dim keyWord As String
+
+SET_LAYER_XREF_TEMP_CURRENT
+
+For Each objLayer In ThisDrawing.Layers
+    If objLayer.Name <> "XREF_TEMP" Then
+        If objLayer.Freeze Then
+            myString = objLayer.Name
+            keyWord = "|"
+            If InStr(1, myString, keyWord, vbTextCompare) > 0 Then
+            ThisDrawing.Utility.Prompt "LAYER X: " & objLayer.Name & " ZIT IN XREF" & vbCrLf
+            Else
+            DELETE_LAYER (objLayer.Name)
+            End If
+        End If
+    End If
+Next
+
+ThisDrawing.Utility.Prompt "ALL FROZEN LAYERS VERWIJDERD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_FROZEN_LAYERS *** end ***")
+ThisDrawing.Utility.Prompt "*** DELETE_FROZEN_LAYERS *** end ***" & vbCrLf
+'CLEAN_UP_XREF.show
+End Sub
+
+Sub LAYERS_LINEWEIGHT_DEFAULT()
+ThisDrawing.Utility.Prompt "*** LAYERS_LINEWEIGHT_DEFAULT *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LAYERS_LINEWEIGHT_DEFAULT *** begin ***")
+'ALLE LAYERS LINEWEIGHT DEFAULT MET UITZONDERING VAN DE CURRENT LAYER: XREF_TEMP
+
+Dim objLayer As AcadLayer
+
+SET_LAYER_XREF_TEMP_CURRENT
+For Each objLayer In ThisDrawing.Layers
+    If objLayer.Name <> "XREF_TEMP" Then
+        objLayer.Lineweight = acLnWtByLwDefault
+    End If
+Next
+
+ThisDrawing.Utility.Prompt "ALL LAYERS: LINEWEIGHT DEFAULT" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LAYERS_LINEWEIGHT_DEFAULT *** end ***")
+ThisDrawing.Utility.Prompt "*** LAYERS_LINEWEIGHT_DEFAULT *** end ***" & vbCrLf
+'CLEAN_UP_XREF.show
+End Sub
+
+Sub REMOVE_LAYER_FILTERS()
+ThisDrawing.Utility.Prompt "*** REMOVE_LAYER_FILTERS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** REMOVE_LAYER_FILTERS *** begin ***")
+'VERWIJDER ALLE LAYER FILTERS IN TEKENING
+Dim blnError As Boolean
+Dim objDict As AcadDictionary
+Dim objFilter As AcadXRecord
+blnError = False
+
+On Error GoTo ErrorHandler
+
+Set objDict = ThisDrawing.Layers.GetExtensionDictionary.Item("AcLyDictionary")
+
+On Error GoTo 0
+
+If blnError = False Then
+    For Each objFilter In objDict
+    objFilter.Delete
+    Next objFilter
+End If
+
+blnError = False
+
+On Error GoTo ErrorHandler
+
+Set objDict = ThisDrawing.Layers.GetExtensionDictionary.Item("ACAD_LAYERFILTERS")
+
+On Error GoTo 0
+
+If blnError = False Then
+    For Each objFilter In objDict
+    objFilter.Delete
+    Next objFilter
+End If
+ThisDrawing.Utility.Prompt "ALLE LAYER-FILTERS ZIJN VERWIJDERD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALLE LAYER-FILTERS ZIJN VERWIJDERD")
+
+Exit Sub
+ErrorHandler:
+
+blnError = True
+
+Resume Next
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** REMOVE_LAYER_FILTERS *** end ***")
+ThisDrawing.Utility.Prompt "*** REMOVE_LAYER_FILTERS *** end ***" & vbCrLf
+End Sub
+
+Sub DELETE_LAYOUTS()
+ThisDrawing.Utility.Prompt "*** DELETE_LAYOUTS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_LAYOUTS *** begin ***")
+'VERIJDER ALLE LAYOUTS IN TEKENING
+Dim adLayout As AcadLayout
+
+On Error Resume Next
+If ThisDrawing.ActiveSpace = acPaperSpace Then
+    ThisDrawing.ActiveSpace = acModelSpace
+End If
+
+For Each adLayout In ThisDrawing.Layouts
+    adLayout.Delete
+Next adLayout
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALLE LAYOUTS VERWIJDERD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALLE LAYOUTS VERWIJDERD")
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_LAYOUTS *** end ***")
+ThisDrawing.Utility.Prompt "*** DELETE_LAYOUTS *** end ***" & vbCrLf
+End Sub
+
+Sub DELETE_VIEWPORTS()
+ThisDrawing.Utility.Prompt "*** DELETE_VIEWPORTS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_VIEWPORTS *** begin ***")
+'VERIJDER ALLE VIEWPORTS IN TEKENING
+Dim objPViewport As AcadPViewport
+
+For Each objPViewport In ThisDrawing.PaperSpace
+    objPViewport.Delete
+Next
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALLE VIEWPORTS VERWIJDERD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALLE VIEWPORTS VERWIJDERD")
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_VIEWPORTS *** end ***")
+ThisDrawing.Utility.Prompt "*** DELETE_VIEWPORTS *** end ***" & vbCrLf
+End Sub
+
+Sub DELETE_VIEWS()
+ThisDrawing.Utility.Prompt "*** DELETE_VIEWS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_VIEWS *** begin ***")
+'VERIJDER ALLE VIEWS IN TEKENING
+Dim objView As AcadView
+
+For Each objView In ThisDrawing.Views
+    objView.Delete
+Next
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALLE VIEWS VERWIJDERD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALLE VIEWS VERWIJDERD")
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_VIEWS *** end ***")
+ThisDrawing.Utility.Prompt "*** DELETE_VIEWS *** end ***" & vbCrLf
+End Sub
+
+Sub PURGE_DRAWING()
+ThisDrawing.Utility.Prompt "*** PURGE_DRAWING *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** PURGE_DRAWING *** begin ***")
+
+ThisDrawing.SendCommand "-PURGE" & vbCr & "ALL" & vbCr & "*" & vbCr & "NO" & vbCr   '-PURGE ALL * N
+ThisDrawing.SendCommand "-PURGE" & vbCr & "ALL" & vbCr & "*" & vbCr & "NO" & vbCr   '-PURGE ALL * N
+ThisDrawing.SendCommand "-PURGE" & vbCr & "RE" & vbCr & "*" & vbCr & "NO" & vbCr    '-PURGE RE * N ->regapps
+ThisDrawing.SendCommand "-PURGE" & vbCr & "Z" & vbCr     '-PURGE Z * N ->zero-length geometry
+ThisDrawing.SendCommand "-PURGE" & vbCr & "E" & vbCr     '-PURGE E * N ->empty text objects
+
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** PURGE_DRAWING *** end ***")
+ThisDrawing.Utility.Prompt "*** PURGE_DRAWING *** end ***" & vbCrLf
+'---WERKT NIET GOED---
+'ThisDrawing.PurgeAll
+'ThisDrawing.Regen acActiveViewport
+End Sub
+
+Sub AUDIT_MODELSPACE()
+ThisDrawing.Utility.Prompt "*** AUDIT_MODELSPACE *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** AUDIT_MODELSPACE *** begin ***")
+'MODELSPACE
+ThisDrawing.ActiveSpace = acModelSpace
+ThisDrawing.SendCommand "AUDIT" & vbCr & "YES" & vbCr  'AUDIT Y
+
+'---WERKT NIET GOED---
+'ThisDrawing.AuditInfo (True)
+
+'ThisDrawing.Regen acActiveViewport
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** AUDIT_MODELSPACE *** end ***")
+ThisDrawing.Utility.Prompt "*** AUDIT_MODELSPACE *** end ***" & vbCrLf
+End Sub
+
+Sub DELETE_LAYER(LayerX As String)
+ThisDrawing.Utility.Prompt "*** DELETE_LAYER *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_LAYER *** begin ***")
+'(A) VERWIJDER ALLE OBJECTEN OP DE LAYERX
+'(B) VERWIJDER LAYERX ZELF
+
+Dim objSS As AcadSelectionSet
+Dim intCode(1) As Integer
+Dim varData(1) As Variant
+Dim count As Integer
+Dim i As Integer
+Dim objLayer As AcadLayer
+
+'--- (A)BEGIN VERWIJDER ALLE OBJECTEN OP DE LAYERX
+'AANMAKEN SELECTIONSET
+Set objSS = makeSS("ENTITIES_ON_LAYERX")
+
+'FILTER INSTELLEN
+intCode(0) = 8      'indicates that a layer is in selection
+varData(0) = LayerX 'only select items on LayerX
+intCode(1) = 67     'only select items in modelspace
+varData(1) = 0      'error without this filter
+
+objSS.Select acSelectionSetAll, , , intCode, varData
+
+count = objSS.count
+
+'WISSEN VAN ALLE ENTITIES ON LAYERX
+objSS.Erase
+  
+'SELECTIESET VERWIJDEREN
+removeSS objSS
+
+ThisDrawing.Utility.Prompt "LAYERX:" & LayerX & " BEVAT " & count & " OBJECTEN" & vbCrLf
+
+'--- (A)EINDE VERWIJDER ALLE OBJECTEN OP DE LAYERX
+
+'--- (B)BEGING VERWIJDER LAYERX ZELF
+
+'SOFT VERWIJDERING
+'LAYER WEGPURGEN ALS HIJ NIET INBLOKKEN ZIT
+ThisDrawing.SendCommand "-purge" & vbCr & "la" & vbCr & LayerX & vbCr & "NO" & vbCr
+
+'WERKT SOFT VERWIJDERING NIET - HARD VERWIJDERING
+
+SET_LAYER_XREF_TEMP_CURRENT
+
+For Each objLayer In ThisDrawing.Layers
+    If objLayer.Name <> "XREF_TEMP" Then
+        If objLayer.Name = LayerX Then
+        ThisDrawing.SendCommand "-laydel" & vbCr & "NAME" & vbCr & LayerX & vbCr & vbCr & "YES" & vbCr
+        End If
+    End If
+Next
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "LAYERX:" & LayerX & " IS VERWIJDERD" & vbCrLf
+'--- (B)EINDE VERWIJDER LAYERX ZELF
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_LAYER *** end ***")
+ThisDrawing.Utility.Prompt "*** DELETE_LAYER *** end ***" & vbCrLf
+End Sub
+
+Sub CLEAR_LAYER0()
+ThisDrawing.Utility.Prompt "*** CLEAR_LAYER0 *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** CLEAR_LAYER0 *** begin ***")
+'ALLE OBJECTEN OP LAYER: 0 VERPLAATSEN NAAR LAYER: 0-DIVERSEN
+
+Dim newlayer As AcadLayer
+Dim objLayer As AcadLayer
+Dim mEntity  As AcadEntity
+Dim newlayerbestaat As Integer
+Dim objSS As AcadSelectionSet
+Dim intCode(1) As Integer
+Dim varData(1) As Variant
+Dim count, i As Integer
+Dim LayerX As String
+
+'LAYER XREF TEMP CURRENT ZETTEN
+SET_LAYER_XREF_TEMP_CURRENT
+'CONTROLEER OF LAYER: 0-DIVERSEN BESTAAT
+newlayerbestaat = 0
+
+For Each objLayer In ThisDrawing.Layers
+    If objLayer.Name = "0-DIVERSEN" Then
+        newlayerbestaat = 1
+    End If
+Next
+
+'AANMAKEN LAYER: 0-DIVERSEN ALS HIJ NOG NIET BESTAAT
+If newlayerbestaat = 0 Then
+    Set newlayer = ThisDrawing.Layers.Add("0-DIVERSEN") 'CREEER NIEUWE LAYER
+End If
+
+'ALLES SELECTEREN OP LAYER: 0
+LayerX = "0"
+'SELECTIESET AANMAKEN
+Set objSS = makeSS("ENTITIES_ON_LAYERX")
+
+'FILTERCODE
+intCode(0) = 8      'indicates that a layer is in selection
+varData(0) = LayerX 'only select items on LayerX
+intCode(1) = 67     'only select items in modelspace
+varData(1) = 0      'error without this filter
+
+objSS.Select acSelectionSetAll, , , intCode, varData
+
+'ALLES IN SELECTIESET OP LAYER: 0-DIVERSEN PLAATSEN
+
+For Each mEntity In objSS
+    mEntity.Layer = "0-DIVERSEN"
+    
+
+ 
+    
+Next
+
+'SELECTIESET VERWIJDEREN
+removeSS objSS
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALLE OBJECTEN VAN LAYER 0 VERPLAATST NAAR LAYER 0-DIVERSEN" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** CLEAR_LAYER0 *** end ***")
+ThisDrawing.Utility.Prompt "*** CLEAR_LAYER0 *** end ***" & vbCrLf
+End Sub
+
+Sub CLEAN_SCALELIST()
+ThisDrawing.Utility.Prompt "*** CLEAN_SCALELIST *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** CLEAN_SCALELIST *** begin ***")
+'ALLE NIET GEBRUIKTE SCHALEN VERWIJDEREN
+
+ThisDrawing.SendCommand ("-SCALELIST" & vbCr & "D" & vbCr & "*" & vbCr & "E" & vbCr)
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALLE NIET GEBRUIKTE SCHALEN ZIJN VERWIJDERD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** CLEAN_SCALELIST *** end ***")
+ThisDrawing.Utility.Prompt "*** CLEAN_SCALELIST *** end ***" & vbCrLf
+End Sub
+
+Sub DELETE_DIMENSIONS()
+ThisDrawing.Utility.Prompt "*** DELETE_DIMENSIONS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_DIMENSIONS *** begin ***")
+'ALLE DIMENSIONS VERWIJDEREN IN TEKENING
+
+Dim ssetA As AcadSelectionSet
+Dim intCode(0) As Integer
+Dim varData(0) As Variant
+
+
+'FILTER INSTELLEN
+intCode(0) = 0
+varData(0) = "Dimension"
+
+'SELECTIESET AANMAKEN
+Set ssetA = makeSS("SS_DIMENSIONS")
+
+ssetA.Select acSelectionSetAll, , , intCode, varData
+
+ssetA.Erase 'WISSEN VAN DIMENSIONS IN SELECTIESET
+
+removeSS ssetA
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALLE DIMENSIONS ZIJN VERWIJDERD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_DIMENSIONS *** end ***")
+ThisDrawing.Utility.Prompt "*** DELETE_DIMENSIONS *** end ***" & vbCrLf
+End Sub
+Sub DELETE_DIMENSIONS_IN_BLOCK()
+ThisDrawing.Utility.Prompt "*** DELETE_DIMENSIONS_IN_BLOCK *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_DIMENSIONS_IN_BLOCK *** begin ***")
+'ALLE DIMENSIONS VERWIJDEREN IN BLOCKS
+
+
+Dim objBlock As AcadBlock
+Dim objEnt As AcadEntity
+Dim i As Integer
+Dim minP1 As Variant, maxP1 As Variant
+For Each objBlock In ThisDrawing.Blocks
+    'Make sure the block def isn't an xref or layout
+    If (objBlock.IsLayout = False) And (objBlock.IsXRef = False) Then
+            
+
+            
+         For i = 0 To objBlock.count - 1
+            Set objEnt = objBlock.Item(i)
+            
+CLEAN_UP_XREF.TextBoxINFO.Text = ("DELETE_DIMENSIONS_IN_BLOCK : " & objEnt.Name)
+
+            
+            If objEnt.ObjectName = AcadDimension Then
+
+            objEnt.Delete
+            End If
+        Next i
+    End If
+Next objBlock
+
+
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALLE DIMENSIONS ZIJN VERWIJDERD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DELETE_DIMENSIONS_IN_BLOCK *** end ***")
+ThisDrawing.Utility.Prompt "*** DELETE_DIMENSIONS_IN_BLOCK *** end ***" & vbCrLf
+End Sub
+
+Sub ALL_BLOCKS_ENTITIES_ON_LAYER0()
+ThisDrawing.Utility.Prompt "*** ALL_BLOCKS_ENTITIES_ON_LAYER0 *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_BLOCKS_ENTITIES_ON_LAYER0 *** begin ***")
+Dim objBlock As AcadBlock
+Dim objEnt As AcadEntity
+Dim i As Integer
+Dim minP1 As Variant, maxP1 As Variant
+
+For Each objBlock In ThisDrawing.Blocks
+    'Make sure the block def isn't an xref or layout
+    If (objBlock.IsLayout = False) And (objBlock.IsXRef = False) Then
+    
+         For i = 0 To objBlock.count - 1
+            Set objEnt = objBlock.Item(i)
+            
+
+
+            'Set all entities in block defintion to 0, ByLayer
+            objEnt.Layer = "0"
+            
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BLOCKS_ENTITIES_ON_LAYER0 : ") '& objEnt.ObjectID32)
+
+       
+        Next i
+    End If
+Next objBlock
+
+''ThisDrawing.Regen acActiveViewport
+ZoomAll
+
+ThisDrawing.Utility.Prompt "ALL ENTITIES IN BLOCK ON LAYER0" & vbCrLf
+
+ThisDrawing.Utility.Prompt "ALL ENTITIES IN BLOCK ON LAYER0" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_BLOCKS_ENTITIES_ON_LAYER0 *** end ***")
+ThisDrawing.Utility.Prompt "*** ALL_BLOCKS_ENTITIES_ON_LAYER0 *** end ***" & vbCrLf
+End Sub
+
+Sub MTEXT_IN_BLOCK()
+ThisDrawing.Utility.Prompt "*** MTEXT_IN_BLOCK *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** MTEXT_IN_BLOCK *** begin ***")
+
+
+Dim oAcadObj As AcadObject
+
+Dim objBlock As AcadBlock
+Dim ObjBlocks As AcadBlockReference
+
+Dim ObjTxt As AcadMText
+Dim ObjAcad As AcadObject
+
+Dim x
+Dim minP1 As Variant, maxP1 As Variant
+
+For Each objBlock In ThisDrawing.Blocks
+If InStr(1, LCase(objBlock.Name), "seal") < 1 Then
+
+For Each ObjAcad In objBlock
+
+If InStr(1, LCase(ObjAcad.ObjectName), "mtext") > 0 Then
+Set ObjTxt = ObjAcad
+
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("MTEXT_IN_BLOCK : " & ObjTxt.TextString)
+
+x = Split(ObjTxt.TextString, ";")
+
+ObjTxt.TextString = x(UBound(x))
+
+End If
+Next ObjAcad
+End If
+Next objBlock
+
+ZoomAll
+
+'ThisDrawing.Regen acActiveViewport
+
+ThisDrawing.Utility.Prompt "MTEXT_IN_BLOCK" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** MTEXT_IN_BLOCK *** end ***")
+ThisDrawing.Utility.Prompt "*** MTEXT_IN_BLOCK *** end ***" & vbCrLf
+End Sub
+
+
+Sub ALL_Mtext_BYLAYER()
+
+ThisDrawing.Utility.Prompt "*** ALL_Mtext_BYLAYER *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_Mtext_BYLAYER *** begin ***")
+
+Dim ssAll As AcadSelectionSet
+Dim oAcadObj As AcadObject
+Dim minP1 As Variant, maxP1 As Variant
+Dim minP2 As Variant, maxP2 As Variant
+
+Dim objBlock As AcadBlock
+Dim ObjBlocks As AcadBlockReference
+
+Dim ObjTxt As AcadMText
+Dim ObjAcad As AcadObject
+
+Set ssAll = makeSS("AllEntities")
+
+ssAll.Select acSelectionSetAll
+
+For Each ObjAcad In ssAll
+If InStr(1, LCase(ObjAcad.ObjectName), "mtext") > 0 Then
+Set ObjTxt = ObjAcad
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_Mtext_BYLAYER : " & ObjTxt.TextString)
+
+x = Split(ObjTxt.TextString, ";")
+
+ObjTxt.TextString = x(UBound(x))
+'Stop
+End If
+Next ObjAcad
+
+removeSS ssAll
+
+
+'ThisDrawing.Regen acAllViewports
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_Mtext_BYLAYER *** end ***")
+ThisDrawing.Utility.Prompt "*** ALL_Mtext_BYLAYER *** end ***" & vbCrLf
+
+
+
+End Sub
+
+Sub X_Mtext()
+
+ThisDrawing.Utility.Prompt "*** ALL_Mtext_BYLAYER *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_Mtext_BYLAYER *** begin ***")
+
+Dim ssAll As AcadSelectionSet
+Dim oAcadObj As AcadObject
+Dim minP1 As Variant, maxP1 As Variant
+Dim minP2 As Variant, maxP2 As Variant
+
+Dim objBlock As AcadBlock
+Dim ObjBlocks As AcadBlockReference
+
+Dim ObjTxt As AcadMText
+Dim ObjAcad As AcadObject
+
+Set ssAll = makeSS("AllEntities")
+
+ssAll.Select acSelectionSetAll
+
+For Each ObjAcad In ssAll
+If InStr(1, LCase(ObjAcad.ObjectName), "acadmtext") > 0 Then
+Set ObjTxt = ObjAcad
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("X_Mtext : " & ObjTxt.TextString)
+
+ThisDrawing.SendCommand ("select" & vbCr & "ObjTxt" & vbCr)
+ThisDrawing.SendCommand ("explode" & vbCr & "ObjTxt" & vbCr & vbCr & Chr(vbKeyEscape))
+'ThisDrawing.SendCommand ("explode" & vbCr & "ObjTxt" & vbCr)
+'ThisDrawing.SendCommand "EXPLODE" & vbCr
+'ThisDrawing.SendCommand (Chr(vbKeyEscape))
+
+
+'Stop
+End If
+Next ObjAcad
+
+removeSS ssAll
+
+
+'ThisDrawing.Regen acAllViewports
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_Mtext_BYLAYER *** end ***")
+ThisDrawing.Utility.Prompt "*** ALL_Mtext_BYLAYER *** end ***" & vbCrLf
+
+
+
+End Sub
+
+
+
+Sub ALL_BY_LAYER()
+
+'CHANGE ALL TO BYLAYER - VIA VARIABELE - FAST WAY
+
+'0  No properties are selected  NOK
+
+'1  Color property  OK
+
+'2  Linetype property   NOK
+'4  Lineweight property OK
+'8  Material property   NOK
+'16 Plot Style property NOK
+'32 Changes ByBlock to ByLayer  OK
+'64 Includes blocks when changing ByBlock to ByLayer    OK
+' TOTAAL 101
+
+ThisDrawing.Utility.Prompt "*** ALL_BY_LAYER1 *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_BY_LAYER1 *** begin ***")
+
+Dim ssAll As AcadSelectionSet
+Dim mEntity As AcadEntity
+Dim minP1 As Variant, maxP1 As Variant
+
+
+Set ssAll = makeSS("AllEntities")
+
+ssAll.Select acSelectionSetAll
+
+
+For Each mEntity In ssAll
+
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BY_LAYER: |")
+    mEntity.Lineweight = acLnWtByLayer
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BY_LAYER: /")
+    mEntity.Color = acByLayer
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BY_LAYER:---")
+    mEntity.Update
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BY_LAYER: \")
+    
+Next
+
+removeSS ssAll
+
+ALL_BLOCKS_BY_LAYER 'SUBROUTINE OPROEPEN
+'Regenerate The Drawing
+'ThisDrawing.Regen acAllViewports
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_BY_LAYER1 *** end ***")
+ThisDrawing.Utility.Prompt "*** ALL_BY_LAYER1 *** end ***" & vbCrLf
+
+
+
+End Sub
+Sub ALL_BLOCKS_BY_LAYER()
+ThisDrawing.Utility.Prompt "*** ALL_BLOCKS_BY_LAYER *** beging ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_BLOCKS_BY_LAYER *** beging ***")
+
+Dim objBlock As AcadBlock
+Dim objEnt As AcadEntity
+Dim minP1 As Variant, maxP1 As Variant
+
+'For every block definition in drawing
+For Each objBlock In ThisDrawing.Blocks
+
+'Make sure the block def isn't an xref or layout
+If (objBlock.IsLayout = False) And (objBlock.IsXRef = False) Then
+
+    'For every entity in block defintion
+    For Each objEnt In objBlock
+    
+
+
+
+
+
+    
+    
+    'Set all entities in block defintion to 0, ByLayer
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BLOCKS_BY_LAYER: |")
+    objEnt.Color = acByLayer
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BLOCKS_BY_LAYER: /")
+    objEnt.Layer = "0"
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BLOCKS_BY_LAYER:---")
+    objEnt.Lineweight = acLnWtByLayer
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BLOCKS_BY_LAYER: \")
+    objEnt.Update
+    
+    Next objEnt
+
+End If
+
+Next objBlock
+
+ZoomAll
+
+''ThisDrawing.Regen acActiveViewport
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** ALL_BLOCKS_BY_LAYER *** end ***")
+ThisDrawing.Utility.Prompt "*** ALL_BLOCKS_BY_LAYER *** end ***" & vbCrLf
+End Sub
+
+Sub SET_UP_VARIABLES()
+ThisDrawing.Utility.Prompt "*** SET_UP_VARIABLES *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SET_UP_VARIABLES *** begin ***")
+'VARIABELEN INSTELLEN
+ThisDrawing.SendCommand ("SNAPANG" & vbCr & "0" & vbCr)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("SET_UP_VARIABLES : SNAPANG = 0")
+ThisDrawing.SendCommand ("BASE" & vbCr & "0,0,0" & vbCr)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("SET_UP_VARIABLES : BASE = 0,0,0")
+ThisDrawing.SendCommand ("VISRETAIN" & vbCr & "1" & vbCr)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("SET_UP_VARIABLES : VISRETAIN = 1")
+ThisDrawing.SendCommand ("XLOADCTL" & vbCr & "2" & vbCr)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("SET_UP_VARIABLES : XLOADCTL = 2")
+ThisDrawing.SendCommand ("PSLTSCALE" & vbCr & "0" & vbCr)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("SET_UP_VARIABLES : PSLTSCALE = 0")
+ThisDrawing.SendCommand ("LTSCALE" & vbCr & "1" & vbCr)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("SET_UP_VARIABLES : LTSCALE = 1")
+ThisDrawing.SendCommand ("MEASUREMENT" & vbCr & "1" & vbCr)
+CLEAN_UP_XREF.TextBoxINFO.Text = ("SET_UP_VARIABLES : MEASUREMENT = 1")
+
+ThisDrawing.Utility.Prompt "VARIABELEN INGESTELD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SET_UP_VARIABLES *** end ***")
+ThisDrawing.Utility.Prompt "*** SET_UP_VARIABLES *** end ***" & vbCrLf
+End Sub
+
+Sub SET_UP_UNITS()
+ThisDrawing.Utility.Prompt "*** SET_UP_UNITS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SET_UP_UNITS *** begin ***")
+ThisDrawing.SendCommand ("-UNITS" & vbCr)
+ThisDrawing.SendCommand ("2" & vbCr)    'Decimal
+ThisDrawing.SendCommand ("2" & vbCr)    ' 2 cijfers na komma
+ThisDrawing.SendCommand ("2" & vbCr)    'Degrees/minutes/seconds
+ThisDrawing.SendCommand ("3" & vbCr)    ' number of fractional places for display of angles
+ThisDrawing.SendCommand ("0" & vbCr)    ' Enter direction for angle
+ThisDrawing.SendCommand ("N" & vbCr)    ' Measure angles clockwise
+ThisDrawing.SendCommand "GRAPHSCR" & vbCrLf 'close text window
+
+ThisDrawing.Utility.Prompt "UNITS INGESTELD" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SET_UP_UNITS *** end ***")
+ThisDrawing.Utility.Prompt "*** SET_UP_UNITS *** end ***" & vbCrLf
+End Sub
+
+Sub SCALE_DRAWING(Factor As Double)
+'VOLLEDIGE TEKENING VERSCHALEN
+ThisDrawing.Utility.Prompt "*** SCALE_DRAWING *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SCALE_DRAWING *** begin ***")
+'Dim factor As Double
+Dim basePoint(2) As Double
+Dim ssAll As AcadSelectionSet
+Dim mEntity As AcadEntity
+Dim LTscaleF As Double
+LTscaleF = Factor
+basePoint(0) = 0
+basePoint(0) = 0
+basePoint(0) = 0
+
+'LOCK LAYER NULPUNT
+For Each objLayer In ThisDrawing.Layers
+    If objLayer.Name = "SBT-AL-NULPUNT" Then
+        If objLayer.Lock = False Then
+        objLayer.Lock = True
+        End If
+    End If
+Next
+Call ThisDrawing.UNLOCK_ALL_LAYERS
+Call ThisDrawing.UNFREEZE_ALL_LAYERS
+
+'SELECTIESET AANMAKEN
+Set ssAll = makeSS("AllEntities")
+
+'ALLES SELECTEREN
+ssAll.Select acSelectionSetAll
+
+For Each mEntity In ssAll
+
+    mEntity.ScaleEntity basePoint, Factor
+Next
+
+'UNLOCK LAYER NULPUNT
+For Each objLayer In ThisDrawing.Layers
+    If objLayer.Name = "SBT-AL-NULPUNT" Then
+        If objLayer.Lock = True Then
+        objLayer.Lock = False
+        End If
+    End If
+Next
+
+removeSS ssAll
+
+'ALLE TLSCALES AANPASSEN
+If LTscaleF <> 1 Then
+
+LTSCALE_AUTO_ALL_EXCLUDE_BLOCKS (LTscaleF)
+LTSCALE_AUTO_ALL_BLOCKS (LTscaleF)
+
+End If
+
+'ThisDrawing.Regen acActiveViewport
+
+ZoomAll
+
+ThisDrawing.Utility.Prompt "SCALE MET FACTOR: " & Factor & " TOEGEPAST OP TEKENING" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SCALE_DRAWING *** end ***")
+ThisDrawing.Utility.Prompt "*** SCALE_DRAWING *** end ***" & vbCrLf
+End Sub
+
+Public Function Ent2lspEnt(entObj As AcadEntity) As String
+'USED BY ROUTINE: BURST_EXPLODE_BLOCKS
+ThisDrawing.Utility.Prompt "*** Ent2lspEnt(entObj As AcadEntity) *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** Ent2lspEnt(entObj As AcadEntity) *** begin ***")
+'Designed to work with SendCommand, which can't pass objects.
+'This gets an objects handle and converts it to a string
+'of lisp commands that returns an entity name when run in SendCommand.
+
+Dim entHandle As String
+
+entHandle = entObj.Handle
+Ent2lspEnt = "(handent " & Chr(34) & entHandle & Chr(34) & ")"
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** Ent2lspEnt(entObj As AcadEntity) *** end ***")
+ThisDrawing.Utility.Prompt "*** Ent2lspEnt(entObj As AcadEntity) *** end ***" & vbCrLf
+End Function
+
+Function SS2array(SS As AcadSelectionSet) As Variant
+ThisDrawing.Utility.Prompt "*** SS2array(SS As AcadSelectionSet) *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SS2array(SS As AcadSelectionSet) *** begin ***")
+'USED BY ROUTINE: BURST_EXPLODE_BLOCKS
+Dim Tmp() As AcadEntity
+Dim i As Long
+
+ReDim Tmp(0 To SS.count - 1)
+For i = 0 To SS.count - 1
+Set Tmp(i) = SS.Item(i)
+Next
+
+SS2array = Tmp
+ThisDrawing.Utility.Prompt "*** SS2array(SS As AcadSelectionSet) *** end ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SS2array(SS As AcadSelectionSet) *** end ***")
+End Function
+
+Sub RENAME_SS(SS As AcadSelectionSet, newname As String)
+ThisDrawing.Utility.Prompt "*** RENAME_SS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** RENAME_SS *** begin ***")
+'USED BY ROUTINE: BURST_EXPLODE_BLOCKS_BY_SELECTION
+Dim tempSS As AcadSelectionSet
+
+Set tempSS = makeSS(newname)
+If SS.count > 0 Then
+    tempSS.AddItems SS2array(SS)
+End If
+SS.Delete
+
+Set SS = tempSS
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** RENAME_SS *** end ***")
+ThisDrawing.Utility.Prompt "*** RENAME_SS *** end ***" & vbCrLf
+End Sub
+
+Sub BURST_EXPLODE_BLOCKS_BY_SELECTION()
+
+ThisDrawing.Utility.Prompt "*** BURST_EXPLODE_BLOCKS_BY_SELECTION *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BURST_EXPLODE_BLOCKS_BY_SELECTION *** begin ***")
+Dim SSblocks As AcadSelectionSet
+Dim intCode(0) As Integer
+Dim varData(0) As Variant
+Dim grpTemp As AcadGroup
+Dim ObjCount As Integer
+
+ThisDrawing.SendCommand "PICKSTYLE" & vbCr & "0" & vbCr
+
+'LOAD LISP
+ThisDrawing.SendCommand "(load " + Chr(34) + "T:/TEEWorkflow/TEE CAD/AUTOCAD LOAD/IBURST.lsp" + Chr(34) + ")" + vbCr
+ThisDrawing.SendCommand "(load " + Chr(34) + "T:/TEEWorkflow/TEE CAD/AUTOCAD LOAD/BlkSetExplodability.lsp" + Chr(34) + ")" + vbCr
+'ALLE BLOCKS DIE UNEXPLODABLE ZIJN EXPLODE PROPERTY OP YES ZETTEN
+ThisDrawing.SendCommand "abeY" + vbCr
+
+CLEAN_UP_XREF.hide
+
+'PICKFIRST SELELECTIE OFWEL SELECTIE ON SCREEN TOEPASSEN
+Set SSblocks = ThisDrawing.PickfirstSelectionSet
+
+RENAME_SS SSblocks, "BLOCKS_SELECT"
+'ThisDrawing.SendCommand (Chr(vbKeyEscape))
+ObjCount = ThisDrawing.SelectionSets("BLOCKS_SELECT").count
+
+If ObjCount = 0 Then
+    Set SSblocks = makeSS("BLOCKS_SELECT")
+    'FILTERCODE
+    intCode(0) = 0
+    varData(0) = "INSERT"
+    SSblocks.SelectOnScreen intCode, varData
+    ObjCount = ThisDrawing.SelectionSets("BLOCKS_SELECT").count
+End If
+
+
+ReDim selObjects(0 To ObjCount - 1) As AcadEntity
+
+For i = 0 To ObjCount - 1
+    Set selObjects(i) = ThisDrawing.SelectionSets("BLOCKS_SELECT").Item(i)
+    CLEAN_UP_XREF.TextBoxINFO.Text = ("BURST_EXPLODE_BLOCKS_BY_SELECTION : " & ThisDrawing.SelectionSets("BLOCKS_SELECT").Item(i).ObjectName)
+    
+Next
+
+
+
+Set grpTemp = ThisDrawing.Groups.Add("TEMPGROUP")
+grpTemp.AppendItems selObjects
+
+ThisDrawing.SendCommand "Select" & vbCr & "g" & vbCr & "TEMPGROUP" & vbCr & vbCr
+
+ThisDrawing.SendCommand ("IBURST" & vbCr)
+ThisDrawing.SendCommand (Chr(vbKeyEscape))
+
+
+
+grpTemp.Delete
+
+
+'ThisDrawing.Utility.Prompt vbCrLf & "ALLE BLOCKEN MET ATTIBUTEN ZIJN GEBURST" & vbCrLf
+'ThisDrawing.Utility.Prompt vbCrLf & "VERBORGEN ATTRIBUTEN VERWIJDERD" & vbCrLf
+'ThisDrawing.Utility.Prompt "ALLE BLOCKEN ZONDER ATTIBUTEN ZIJN GEEXPLODED" & vbCrLf
+
+'ThisDrawing.Regen acActiveViewport
+
+
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BURST_EXPLODE_BLOCKS_BY_SELECTION *** end ***")
+ThisDrawing.Utility.Prompt "*** BURST_EXPLODE_BLOCKS_BY_SELECTION *** end ***" & vbCrLf
+
+
+
+
+End Sub
+
+Sub BURST_EXPLODE_DRAWING_LEVEL_FAST(level As Integer) 'FAST WAY
+ThisDrawing.Utility.Prompt "*** BURST_EXPLODE_DRAWING_LEVEL_FAST *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BURST_EXPLODE_DRAWING_LEVEL_FAST *** begin ***")
+
+'level = 5
+
+ThisDrawing.SendCommand "PICKSTYLE" & vbCr & "0" & vbCr
+'LOAD LISP
+ThisDrawing.SendCommand "(load " + Chr(34) + "T:/TEEWorkflow/TEE CAD/AUTOCAD LOAD/IBURST.lsp" + Chr(34) + ")" + vbCr
+ThisDrawing.SendCommand "(load " + Chr(34) + "T:/TEEWorkflow/TEE CAD/AUTOCAD LOAD/BlkSetExplodability.lsp" + Chr(34) + ")" + vbCr
+'ALLE BLOCKS DIE UNEXPLODABLE ZIJN EXPLODE PROPERTY OP YES ZETTEN
+ThisDrawing.SendCommand "abeY" + vbCr
+
+For i = 1 To level
+    ThisDrawing.SendCommand ("BURST" & vbCr)
+    ThisDrawing.SendCommand ("ALL" & vbCr & vbCr)
+Next
+
+ThisDrawing.Utility.Prompt "*** BURST_EXPLODE_DRAWING_LEVEL_FAST *** end ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BURST_EXPLODE_DRAWING_LEVEL_FAST *** end ***")
+End Sub
+
+Sub BURST_EXPLODE_DRAWING_LEVEL_SLOW(level As Integer)
+ThisDrawing.Utility.Prompt "*** BURST_EXPLODE_DRAWING_LEVEL_SLOW *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BURST_EXPLODE_DRAWING_LEVEL_SLOW *** begin ***")
+Dim SSblocks As AcadSelectionSet
+Dim Block As AcadBlockReference
+Dim entObj As AcadEntity
+Dim intCode(0) As Integer
+Dim varData(0) As Variant
+
+'Dim level As Integer
+'level = 5
+ThisDrawing.SendCommand "PICKSTYLE" & vbCr & "0" & vbCr
+'LOAD LISP
+ThisDrawing.SendCommand "(load " + Chr(34) + "T:/TEEWorkflow/TEE CAD/AUTOCAD LOAD/IBURST.lsp" + Chr(34) + ")" + vbCr
+ThisDrawing.SendCommand "(load " + Chr(34) + "T:/TEEWorkflow/TEE CAD/AUTOCAD LOAD/BlkSetExplodability.lsp" + Chr(34) + ")" + vbCr
+'ALLE BLOCKS DIE UNEXPLODABLE ZIJN EXPLODE PROPERTY OP YES ZETTEN
+ThisDrawing.SendCommand "abeY" + vbCr
+
+
+Set SSblocks = makeSS("ALL_BLOCKS")
+'FILTERCODE OP BLOCKS
+intCode(0) = 0
+varData(0) = "INSERT"
+
+For i = 1 To level
+    SSblocks.Select acSelectionSetAll, , , intCode, varData
+
+    For Each Block In SSblocks
+            Set entObj = Block
+            ThisDrawing.SendCommand ("copy" & vbCr & Ent2lspEnt(entObj) & vbCr & vbCr & "@" & vbCr & "@" & vbCr & Chr(vbKeyEscape))
+            On Error Resume Next
+            ThisDrawing.SendCommand ("erase" & vbCr & "previous" & vbCr & vbCr & Chr(vbKeyEscape))
+            ThisDrawing.SendCommand ("IBURST" & vbCr & "last" & vbCr & vbCr & Chr(vbKeyEscape))
+    Next
+    
+    Set SSblocks = makeSS("ALL_BLOCKS")
+    ThisDrawing.Utility.Prompt vbCrLf & "LEVEL " & i & vbCrLf
+Next
+
+removeSS SSblocks
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt vbCrLf & "ALLE BLOCKEN MET ATTIBUTEN ZIJN GEBURST" & vbCrLf
+ThisDrawing.Utility.Prompt "ALLE BLOCKEN ZONDER ATTIBUTEN ZIJN GEEXPLODED" & vbCrLf
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BURST_EXPLODE_DRAWING_LEVEL_SLOW *** end ***")
+ThisDrawing.Utility.Prompt "*** BURST_EXPLODE_DRAWING_LEVEL_SLOW *** end ***" & vbCrLf
+End Sub
+
+Sub RELOAD_XREFS()
+ThisDrawing.Utility.Prompt "*** RELOAD_XREFS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** RELOAD_XREFS *** begin ***")
+Dim objBlock As AcadBlock
+Dim aantalkeerroutine As Integer
+Dim i As Integer
+
+aantalkeerroutine = 3
+
+For i = 0 To aantalkeerroutine
+    For Each objBlock In ThisDrawing.Blocks
+        If objBlock.IsXRef And objBlock.count = 0 Then 'DIT IS EEN UNLOADED XREF
+            On Error Resume Next
+            objBlock.Reload
+        End If
+    Next
+Next i
+
+ZoomAll
+
+ThisDrawing.Utility.Prompt "TRY TO RELOAD UNLOADED XREFS" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** RELOAD_XREFS *** end ***")
+ThisDrawing.Utility.Prompt "*** RELOAD_XREFS *** end ***" & vbCrLf
+End Sub
+
+Sub BIND_AND_EXPLODE_XREFS_LOADED()
+ThisDrawing.Utility.Prompt "*** BIND_AND_EXPLODE_XREFS_LOADED *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BIND_AND_EXPLODE_XREFS_LOADED *** begin ***")
+Dim objBlock As AcadBlock
+Dim objBlockRef As AcadBlockReference
+Dim entity As AcadEntity
+
+Dim ssXref As AcadSelectionSet
+Dim count As Integer
+
+Dim intCode(1) As Integer
+Dim varData(1) As Variant
+
+'--(1) BIND XREF ---------------------------------------
+For Each objBlock In ThisDrawing.Blocks
+    
+    If objBlock.IsXRef And objBlock.count > 0 Then
+        '--(1) BIND XREF
+        On Error Resume Next
+        objBlock.Bind False 'FALSE:BIND / TRUE:INSERT
+        
+        '--(2) EXPLODE BLOCK: GEBINDE XREF ---------------------------------------
+        
+        'SELECTIESET SSXREF AANMAKEN
+        Set ssXref = makeSS("SSXREF")
+        
+        'FILTER INSTELLEN
+        sXrefName = objBlock.Name
+        intCode(0) = 0
+        varData(0) = "INSERT"
+        intCode(1) = 2
+        varData(1) = sXrefName
+              
+        ssXref.Select acSelectionSetAll, , , intCode, varData
+        
+        'ALLE BLOCKEN IN SSXREF EXPLODEN
+        For Each entity In ssXref
+            Set objBlockRef = entity
+            objBlockRef.Explode
+            objBlockRef.Delete
+            
+        Next entity
+        
+        removeSS ssXref
+      
+    End If
+Next objBlock
+
+ZoomAll
+
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALLE LOADED XREFS ZIJN BINDED EN EXPLODED" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BIND_AND_EXPLODE_XREFS_LOADED *** end ***")
+ThisDrawing.Utility.Prompt "*** BIND_AND_EXPLODE_XREFS_LOADED *** end ***" & vbCrLf
+End Sub
+
+Sub BIND_XREFS_LOADED()
+ThisDrawing.Utility.Prompt "*** BIND_XREFS_LOADED *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BIND_XREFS_LOADED *** begin ***")
+Dim objBlock As AcadBlock
+Dim objBlockRef As AcadBlockReference
+Dim entity As AcadEntity
+
+Dim ssXref As AcadSelectionSet
+Dim count As Integer
+
+Dim intCode(1) As Integer
+Dim varData(1) As Variant
+
+'--(1) BIND XREF ---------------------------------------
+For Each objBlock In ThisDrawing.Blocks
+    
+    If objBlock.IsXRef And objBlock.count > 0 Then
+        '--(1) BIND XREF
+        On Error Resume Next
+        objBlock.Bind False 'FALSE:BIND / TRUE:INSERT
+        
+      
+      
+    End If
+Next objBlock
+
+ZoomAll
+
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALLE LOADED XREFS ZIJN BINDED EN EXPLODED" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** BIND_AND_EXPLODE_XREFS_LOADED *** end ***")
+ThisDrawing.Utility.Prompt "*** BIND_AND_EXPLODE_XREFS_LOADED *** end ***" & vbCrLf
+
+End Sub
+
+Sub DETACH_XREFS_UNLOADED()
+ThisDrawing.Utility.Prompt "*** DETACH_XREFS_UNLOADED *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DETACH_XREFS_UNLOADED *** begin ***")
+'DOORLOOPT 3x XREF (OM GENESTE XREFS TE VERMIJDEN) LIJST EN DETACH ALLE XREFS UNLOADED
+Dim objBlock As AcadBlock
+Dim aantalkeerroutine As Integer
+Dim i As Integer
+
+aantalkeerroutine = 1
+
+For i = 0 To aantalkeerroutine
+    For Each objBlock In ThisDrawing.Blocks
+        If objBlock.IsXRef And objBlock.count = 0 Then   'DIT IS EEN UNLOADED XREF
+            'ThisDrawing.Utility.Prompt objBlock.Name & "*" & objBlock.Count & vbCrLf
+            'ThisDrawing.Utility.Prompt objBlock.Path & vbCrLf
+            On Error Resume Next
+            objBlock.Detach
+        End If
+    Next
+Next i
+
+ZoomAll
+
+ThisDrawing.Utility.Prompt "TRY TO DETACH UNLOADED XREFS" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DETACH_XREFS_UNLOADED *** end ***")
+ThisDrawing.Utility.Prompt "*** DETACH_XREFS_UNLOADED *** end ***" & vbCrLf
+End Sub
+
+Sub DETACH_XREFS_NOT_FOUND()
+ThisDrawing.Utility.Prompt "*** DETACH_XREFS_NOT_FOUND *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DETACH_XREFS_NOT_FOUND *** begin ***")
+'LOAD LISP
+ThisDrawing.SendCommand "(load " + Chr(34) + "T:/TEEWorkflow/TEE CAD/AUTOCAD LOAD/DETACHXREFS_NOT_FOUND.lsp" + Chr(34) + ")" + vbCr
+
+'UITVOEREN
+ThisDrawing.SendCommand ("DETACHXREFS_NOT_FOUND" & vbCr)
+
+ThisDrawing.Utility.Prompt "TRY TO DETACH XREFS NOT FOUND" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DETACH_XREFS_NOT_FOUND *** end ***")
+ThisDrawing.Utility.Prompt "*** DETACH_XREFS_NOT_FOUND *** end ***" & vbCrLf
+End Sub
+
+Sub DETACH_XREFS_ALL()
+ThisDrawing.Utility.Prompt "*** DETACH_XREFS_ALL *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DETACH_XREFS_ALL *** begin ***")
+'LOAD LISP
+ThisDrawing.SendCommand "(load " + Chr(34) + "T:/TEEWorkflow/TEE CAD/AUTOCAD LOAD/DETACHXREFS_ALL.lsp" + Chr(34) + ")" + vbCr
+
+PURGE_DRAWING
+
+'UITVOEREN
+ThisDrawing.SendCommand ("DETACHXREFS_ALL" & vbCr)
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "TRY TO DETACH XREFS NOT FOUND" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** DETACH_XREFS_ALL *** end ***")
+ThisDrawing.Utility.Prompt "*** DETACH_XREFS_ALL *** end ***" & vbCrLf
+End Sub
+
+Sub LTSCALE_ALL_EXCLUDE_BLOCKS(LTscale As Double)
+ThisDrawing.Utility.Prompt "*** LTSCALE_ALL_EXCLUDE_BLOCKS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LTSCALE_ALL_EXCLUDE_BLOCKS *** begin ***")
+Dim objSS As AcadSelectionSet
+Dim intCode(2) As Integer
+Dim varData(2) As Variant
+Dim i As Long
+Dim minP1 As Variant, maxP1 As Variant
+
+
+Call ThisDrawing.STORE_LAYERSTATE
+
+Call ThisDrawing.UNLOCK_ALL_LAYERS
+
+'AANMAKEN SELECTIONSET
+Set objSS = makeSS("ALL_EXCLUDE_BLOCKS")
+
+'FILTER INSTELLEN
+'ALLES SELECTEREN UITGEZONDERD BLOKKEN
+intCode(0) = -4
+varData(0) = "<NOT"
+intCode(1) = 0
+varData(1) = "INSERT"
+intCode(2) = -4
+varData(2) = "NOT>"
+
+objSS.Select acSelectionSetAll, , , intCode, varData
+
+For i = 0 To objSS.count - 1
+    objSS.Item(i).LinetypeScale = LTscale
+    On Error Resume Next
+    
+   
+    
+Next i
+On Error Resume Next
+removeSS objSS
+
+ZoomAll
+
+Call ThisDrawing.RESTORE_LAYERSTATE_ALL
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALL EXCEPT BLOCKS LTSCALE = " & LTscale & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LTSCALE_ALL_EXCLUDE_BLOCKS *** end ***")
+ThisDrawing.Utility.Prompt "*** LTSCALE_ALL_EXCLUDE_BLOCKS *** end ***" & vbCrLf
+End Sub
+
+Sub LTSCALE_ALL_BLOCKS(LTscale As Double)
+ThisDrawing.Utility.Prompt "*** LTSCALE_ALL_BLOCKS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LTSCALE_ALL_BLOCKS *** begin ***")
+Dim objSS As AcadSelectionSet
+Dim intCode(0) As Integer
+Dim varData(0) As Variant
+Dim i As Long
+Dim minP1 As Variant, maxP1 As Variant
+
+Call ThisDrawing.STORE_LAYERSTATE
+
+Call ThisDrawing.UNLOCK_ALL_LAYERS
+
+
+'AANMAKEN SELECTIONSET
+Set objSS = makeSS("ALL_EXCLUDE_BLOCKS")
+
+'FILTER INSTELLEN
+
+intCode(0) = 0
+varData(0) = "INSERT"
+
+objSS.Select acSelectionSetAll, , , intCode, varData
+
+ThisDrawing.Utility.Prompt objSS.count & vbCrLf
+
+For i = 0 To objSS.count - 1
+    objSS.Item(i).LinetypeScale = LTscale
+        
+    'objSS.Item(i).GetBoundingBox minP1, maxP1
+    'On Error Resume Next
+    'ZoomWindow minP1, maxP1
+    'On Error Resume Next
+    
+Next i
+
+On Error Resume Next
+removeSS objSS
+
+Call ThisDrawing.RESTORE_LAYERSTATE_ALL
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "BLOCKS LTSCALE = " & LTscale & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LTSCALE_ALL_BLOCKS *** end ***")
+ThisDrawing.Utility.Prompt "*** LTSCALE_ALL_BLOCKS *** end ***" & vbCrLf
+End Sub
+Sub LTSCALE_AUTO_ALL_EXCLUDE_BLOCKS(LTscaleF As Double)
+ThisDrawing.Utility.Prompt "*** LTSCALE_AUTO_ALL_EXCLUDE_BLOCKS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LTSCALE_AUTO_ALL_EXCLUDE_BLOCKS *** begin ***")
+Dim objSS As AcadSelectionSet
+Dim intCode(2) As Integer
+Dim varData(2) As Variant
+Dim i As Long
+Dim minP1 As Variant, maxP1 As Variant
+
+
+Call ThisDrawing.STORE_LAYERSTATE
+
+Call ThisDrawing.UNLOCK_ALL_LAYERS
+
+'AANMAKEN SELECTIONSET
+Set objSS = makeSS("ALL_EXCLUDE_BLOCKS")
+
+'FILTER INSTELLEN
+'ALLES SELECTEREN UITGEZONDERD BLOKKEN
+intCode(0) = -4
+varData(0) = "<NOT"
+intCode(1) = 0
+varData(1) = "INSERT"
+intCode(2) = -4
+varData(2) = "NOT>"
+
+objSS.Select acSelectionSetAll, , , intCode, varData
+
+For i = 0 To objSS.count - 1
+    objSS.Item(i).LinetypeScale = objSS.Item(i).LinetypeScale * LTscaleF
+    
+    'objSS.GetBoundingBox minP1, maxP1
+    'On Error Resume Next
+    'ZoomWindow minP1, maxP1
+    'On Error Resume Next
+
+Next i
+On Error Resume Next
+removeSS objSS
+
+Call ThisDrawing.RESTORE_LAYERSTATE_ALL
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "ALL EXCEPT BLOCKS LTSCALE = " & LTscaleF & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LTSCALE_AUTO_ALL_EXCLUDE_BLOCKS *** end ***")
+ThisDrawing.Utility.Prompt "*** LTSCALE_AUTO_ALL_EXCLUDE_BLOCKS *** end ***" & vbCrLf
+End Sub
+
+Sub LTSCALE_AUTO_ALL_BLOCKS(LTscaleF As Double)
+ThisDrawing.Utility.Prompt "*** LTSCALE_AUTO_ALL_BLOCKS *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LTSCALE_AUTO_ALL_BLOCKS *** begin ***")
+Dim objSS As AcadSelectionSet
+Dim intCode(0) As Integer
+Dim varData(0) As Variant
+Dim i As Long
+Dim minP1 As Variant, maxP1 As Variant
+
+
+Call ThisDrawing.STORE_LAYERSTATE
+
+Call ThisDrawing.UNLOCK_ALL_LAYERS
+
+'AANMAKEN SELECTIONSET
+Set objSS = makeSS("ALL_EXCLUDE_BLOCKS")
+
+'FILTER INSTELLEN
+
+intCode(0) = 0
+varData(0) = "INSERT"
+
+objSS.Select acSelectionSetAll, , , intCode, varData
+
+ThisDrawing.Utility.Prompt objSS.count & vbCrLf
+
+For i = 0 To objSS.count - 1
+    objSS.Item(i).LinetypeScale = objSS.Item(i).LinetypeScale * LTscaleF
+    
+Next i
+
+On Error Resume Next
+removeSS objSS
+
+Call ThisDrawing.RESTORE_LAYERSTATE_ALL
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "BLOCKS LTSCALE = " & LTscaleF & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** LTSCALE_AUTO_ALL_BLOCKS *** end ***")
+ThisDrawing.Utility.Prompt "*** LTSCALE_AUTO_ALL_BLOCKS *** end ***" & vbCrLf
+End Sub
+
+Sub FLATTEN_DRAWING()
+ThisDrawing.Utility.Prompt "*** FLATTEN_DRAWING *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** FLATTEN_DRAWING *** begin ***")
+
+ThisDrawing.SendCommand "FLATTEN" & vbCr & "ALL" & vbCr & vbCr & "NO" & vbCr
+
+'ThisDrawing.Regen acActiveViewport
+ZoomAll
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** FLATTEN_DRAWING *** end ***")
+ThisDrawing.Utility.Prompt "*** FLATTEN_DRAWING *** end ***" & vbCrLf
+End Sub
+
+Sub CREATE_WBLOCK()
+ThisDrawing.Utility.Prompt "*** CREATE_WBLOCK *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** CREATE_WBLOCK *** begin ***")
+'Dim WB_drawingpath, WB_drawingname As String   'ingesteld als MAIN-VARIABELE
+Dim MyDocument As AcadDocument
+Dim ssAll As AcadSelectionSet
+
+Set MyDocument = Application.ActiveDocument
+
+WB_drawingname = "WBLOCK_" & MyDocument.Name
+WB_drawingpath = MyDocument.Path & "\"
+
+'SELECTIESET AANMAKEN
+Set ssAll = makeSS("ALLES")
+
+'SELECTIESET1 ALLES SELECTEREN
+ssAll.Select acSelectionSetAll
+
+'WBLOCK MAKEN
+ThisDrawing.Wblock (WB_drawingpath & WB_drawingname), ssAll
+
+'SELECTIESET WISSEN
+removeSS ssAll
+'ThisDrawing.Regen acActiveViewport
+ThisDrawing.Utility.Prompt "*** CREATE_WBLOCK *** end ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** CREATE_WBLOCK *** end ***")
+End Sub
+
+Sub COPY_WBLOCK_INTO_TEMPLATE(TF_drawingpath As String, xrefnaam As String)
+ThisDrawing.Utility.Prompt "*** COPY_WBLOCK_INTO_TEMPLATE *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** COPY_WBLOCK_INTO_TEMPLATE *** begin ***")
+'CURRENT FILE
+Dim CF As AcadDocument
+Dim CF_drawingpath As String
+Dim CF_drawingname As String
+
+'TEMPLATE FILE
+Dim TF As AcadDocument
+'Dim TF_drawingpath As String 'test
+'TF_drawingpath = "C:\LISP\XREF-Template.dwt" 'test
+'Dim xrefnaam As String 'test
+'xrefnaam = "XXX_XREFTESTFILE" 'test
+
+Set CF = ThisDrawing.Application.ActiveDocument
+Set TF = ThisDrawing.Application.Documents.Add(TF_drawingpath)
+
+'(1)EXPORTEER WBLOCK FROM currentFile
+CF.Activate
+CF_drawingname = CF.Name
+CF_drawingpath = CF.Path & "\"
+'INVULLEN VAN MAIN-VARIABELE
+ACH_drawingfullpath = CF_drawingpath & CF_drawingname   'ingesteld als MAIN-VARIABELE
+ACH_drawingpath = CF_drawingpath
+CF.Close False
+
+'(2)INSERT WBLOCK IN templateFile
+TF.Activate
+Dim insertionPnt(0 To 2) As Double
+Dim blockRefObj As AcadBlockReference
+Dim temp As Variant
+
+insertionPnt(0) = 0#: insertionPnt(1) = 0#: insertionPnt(2) = 0#
+'INVOEGEN VAN WB_BLOCK
+Set blockRefObj = ThisDrawing.ModelSpace.InsertBlock(insertionPnt, (WB_drawingpath & WB_drawingname), 1#, 1#, 1#, 0)
+'BLOCK EXPLODEREN EN DUPLICAAT VERWIJDEREN
+blockRefObj.Explode
+blockRefObj.Delete
+
+'(3)VERWIJDER WBLOCK
+'Kill (WB_drawingpath & WB_drawingname)
+
+'(4)NULPUNT - HYPERLINK TOEVOEGEN
+'SELECT_NULPUNT_ADD_HYPERLINK
+
+'(5)SAVE AS
+SAVE_AS_XREF xrefnaam
+'ThisDrawing.Regen acActiveViewport
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** COPY_WBLOCK_INTO_TEMPLATE *** end ***")
+ThisDrawing.Utility.Prompt "*** COPY_WBLOCK_INTO_TEMPLATE *** end ***" & vbCrLf
+End Sub
+
+Sub SELECT_NULPUNT_ADD_HYPERLINK()
+'USED BY ROUTINE: COPY_INTO_TEMPLATE
+ThisDrawing.Utility.Prompt "*** SELECT_NULPUNT_ADD_HYPERLINK *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SELECT_NULPUNT_ADD_HYPERLINK *** begin ***")
+Dim point1(0 To 2) As Double
+Dim point2(0 To 2) As Double
+Dim Blkinsertionpoint(0 To 2) As Double
+Dim temppoint As Variant
+Dim ent As AcadEntity
+Dim blockbestaat As Integer
+Dim Block As AcadBlockReference
+Dim Hyperlinks As AcadHyperlinks
+Dim Hyperlink As AcadHyperlink
+Dim ssAll As AcadSelectionSet
+'CLEAN_UP_XREF.HIDE
+'ZoomAll
+'temppoint = ThisDrawing.Utility.GetPoint(, vbCrLf & "SELECTEER HET NULPUNT VAN DE TEKENING:")
+
+'TOEKOMSTIGE NULPUNT
+point1(0) = 0
+point1(1) = 0
+point1(2) = 0
+
+'NULPUNT VAN TEKENING
+point2(0) = 0
+point2(1) = 0
+point2(2) = 0
+
+'SELECTIESET AANMAKEN
+Set ssAll = makeSS("ALLES")
+
+'ALLES SELECTEREN
+ssAll.Select acSelectionSetAll
+
+blockbestaat = 0 'KIJKEN OF HET BLOCK: "SDKE nulpunt" AL OF NIET IN TEKENING ZIT
+For Each ent In ssAll
+    
+    ent.Move point1, point2
+
+    If ent.ObjectName = "AcDbBlockReference" Then
+        If ent.EffectiveName = "A&T_nulpunt" Then
+            blockbestaat = 1
+            
+            'INSERTIONPOINT VAN BLOCK: "SDKE nulpunt"
+            Set Block = ent
+            Blkinsertionpoint(0) = Block.InsertionPoint(0)
+            Blkinsertionpoint(1) = Block.InsertionPoint(1)
+            Blkinsertionpoint(2) = Block.InsertionPoint(2)
+            'VERPLAATS BLOCK NAAR NULPUNT VAN TEKENING
+            Block.Move Blkinsertionpoint, point2
+            
+            'HYPERLINK TOEVOEGEN
+            Set Hyperlinks = Block.Hyperlinks
+            'HYPERLINK PROPERTIES INSTELLEN
+            Set Hyperlink = Hyperlinks.Add("ARCHITECTUUR_ORIGINEEL")
+            Hyperlink.URL = ACH_drawingfullpath
+            'Hyperlink.URLDescription = "Autodesk Main Site"
+            'Hyperlink.URLNamedLocation = "MY_LOCATION"
+        End If
+    End If
+Next
+
+If blockbestaat = 0 Then
+    ThisDrawing.Utility.Prompt vbCrLf & "TEKENING BEVAT GEEN BLOCK: A&T_nulpunt" & vbCrLf
+    ThisDrawing.Utility.Prompt vbCrLf & "VOEG TOE EN VOER OPNIEUW UIT" & vbCrLf
+End If
+
+'SELECTIESET WISSEN
+removeSS ssAll
+'ThisDrawing.Regen acActiveViewport
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SELECT_NULPUNT_ADD_HYPERLINK *** end ***")
+ThisDrawing.Utility.Prompt "*** SELECT_NULPUNT_ADD_HYPERLINK *** end ***" & vbCrLf
+End Sub
+
+
+Sub LAUNCH_FORM_00()
+ThisDrawing.Utility.Prompt "*** LAUNCH_FORM *** begin ***" & vbCrLf
+Dim x As Date
+'x = "01/08/2017"
+'If Date > x Then
+ '   MsgBox "expired"
+ '   Else
+    
+CLEAN_UP_XREF.LAUNCH_FORM
+ThisDrawing.Utility.Prompt "*** LAUNCH_FORM *** end ***" & vbCrLf
+'End If
+End Sub
+
+'--------------------------------------------------------------------------------------------
+'--- EINDE ROUTINES XREFCLEAN V3.1-----------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+'--- BEGIN SUBROUTINES-----------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+
+
+
+
+
+
+' Convert angle in degrees to radians
+Public Function dtr(a As Double) As Double
+
+dtr = (a / 180) * 3.141592653
+
+End Function
+Sub deltext10()
+ThisDrawing.Utility.Prompt "*** deltext10 *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** deltext10 *** begin ***")
+
+Dim point1(0 To 2) As Double
+Dim point2(0 To 2) As Double
+
+point1(0) = 0: point1(1) = 0: point1(2) = 0
+point2(0) = 300000: point2(1) = tempywaarde: point2(2) = 0
+
+
+Call PURGE_DRAWING
+
+Dim ssAll As AcadSelectionSet
+
+
+Dim ObjTxt As AcadText
+Dim ObjAcad As AcadObject
+
+Set ssAll = makeSS("AllEntities")
+
+ssAll.Select acSelectionSetAll
+
+For Each ObjAcad In ssAll
+If ObjAcad.ObjectName = "AcDbText" Then
+
+Set ObjTxt = ObjAcad
+
+If ObjTxt.Height = 10 Then
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** " & ObjTxt.TextString & "*** delete ***")
+
+ObjTxt.Delete
+
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** next ***")
+
+End If
+End If
+'On Error Resume Next
+
+
+
+
+Next ObjAcad
+
+removeSS ssAll
+
+
+'ThisDrawing.Regen acAllViewports
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** deltext10 *** end ***")
+ThisDrawing.Utility.Prompt "*** deltext10 *** end ***" & vbCrLf
+End Sub
+
+Sub db2sb()
+ThisDrawing.Utility.Prompt "*** db2sb *** begin ***" & vbCrLf
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** db2sb *** begin ***")
+
+Dim SSblocks As AcadSelectionSet
+Dim Block As AcadBlockReference
+Dim entObj As AcadEntity
+Dim intCode(0) As Integer
+Dim varData(0) As Variant
+Dim j As Integer
+Dim BlockName As String
+Dim minP1 As Variant, maxP1 As Variant
+
+
+Set SSblocks = makeSS("ALL_BLOCKS")
+'FILTERCODE OP BLOCKS
+intCode(0) = 0
+varData(0) = "INSERT"
+
+
+    SSblocks.Select acSelectionSetAll, , , intCode, varData
+
+    For Each Block In SSblocks
+
+        If Block.IsDynamicBlock Then
+
+        'For every entity in block defintion
+    
+            'blocknameorigin = Block.ObjectName
+
+            BlockName = (Block.EffectiveName & "-sb" & j)
+
+            Block.ConvertToStaticBlock (BlockName)
+
+       
+       
+       
+CLEAN_UP_XREF.TextBoxINFO.Text = ("db2sb : " & BlockName)
+
+        End If
+    
+        j = j + 1
+
+    Next
+    
+    'Set SSblocks = makeSS("ALL_BLOCKS")
+    ThisDrawing.Utility.Prompt vbCrLf & "LEVEL " & i & vbCrLf
+
+
+removeSS SSblocks
+'ThisDrawing.Regen acActiveViewport
+
+
+'---------------------------------------------------------------
+
+Call PURGE_DRAWING
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** db2sb *** end ***")
+ThisDrawing.Utility.Prompt "*** db2sb *** end ***" & vbCrLf
+
+
+End Sub
+Public Function SEND_EXPORT()
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SEND_EXPORT *** BEGIN ***")
+ThisDrawing.Utility.Prompt "*** SEND_EXPORT *** BEGIN ***" & vbCrLf
+
+bestandsnaam = (Replace(ThisDrawing.FullName, ".dwg", "-exp") & ".dwg")
+
+ThisDrawing.SaveAs bestandsnaam
+
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SEND_EXPORT : SaveAs -EXP")
+
+
+Call db2sb
+
+ThisDrawing.Save
+CLEAN_UP_XREF.TextBoxINFO.Text = ("*** SEND_EXPORT *** END ***")
+ThisDrawing.Utility.Prompt "*** SEND_EXPORT *** END ***" & vbCrLf
+End Function
+Public Function A2T()
+
+
+
+
+
+            
+CLEAN_UP_XREF.TextBoxINFO.Text = ("ALL_BLOCKS_ENTITIES_ON_LAYER0 : " & objEnt.ObjectID32)
+
+
+
+
+
+            
+CLEAN_UP_XREF.TextBoxINFO.Text = ("A2T : " & objEnt.ObjectID32)
+
+
+                    
+            
+
+End Function
+
+
+
+
+
+
+
+'--------------------------------------------------------------------------------------------
+'--- EINDE HOOFDROUTINES-----------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+
+
+
+
+'--------------------------------------------------------------------------------------------
+'--- BEGIN PLOT ROUTINES---------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+Sub LAUNCH_FORM_ALLPLOT()
+ThisDrawing.Utility.Prompt "*** LAUNCH_FORM_ALLPLOT *** begin ***" & vbCrLf
+Dim x As Date
+x = "01/08/2020"
+If Date > x Then
+    MsgBox "expired"
+    Else
+ALL_PLOT.LAUNCH_FORM_ALLPLOT
+
+ThisDrawing.Utility.Prompt "*** LAUNCH_FORM_ALLPLOT *** end ***" & vbCrLf
+End If
+End Sub
+
+
+Sub PlotLayouts(PLOTTER, size As String)
+
+    Dim PlotLayout As AcadLayout
+    Dim PlotLayouts As AcadLayouts
+    Dim StrMsg As String
+    Dim StrTitle As String
+    Dim Response
+    Dim PtConfigs As AcadPlotConfigurations
+    Dim PlotConfig As AcadPlotConfiguration
+    Dim PtObj As AcadPlot
+    Dim BackPlot As Variant
+    Dim plotstyle_oud As String
+    Dim bestandsnaam As String
+    Dim i As Integer
+    Dim papiernaam As String
+    Dim Activelayout As AcadLayout
+    Dim PaperWidth As Double
+    Dim PaperHeight As Double
+    Dim PaperWidthNew As Double
+    Dim PaperHeightNew As Double
+
+    On Error Resume Next
+    
+    ThisDrawing.ActiveSpace = acModelSpace
+
+    If ThisDrawing.ActiveSpace = acModelSpace Then _
+
+            ThisDrawing.ActiveSpace = acPaperSpace
+
+    Set PlotLayouts = ThisDrawing.Layouts
+
+    StrMsg = "PLOT " & PlotLayouts.count - 1 & " LAYOUTS ?"
+
+    StrTitle = "? ALLE LAYOUTS PLOTTEN ?"
+
+    Response = MsgBox(StrMsg, vbYesNo, StrTitle)
+    
+    If Response = vbNo Then
+        MsgBox ("GEBRUIK PUBLISH VOOR APARTE LAYOUTS TE PLOTTEN")
+    End If
+
+    If Response = vbYes Then
+
+        For Each PlotLayout In PlotLayouts
+
+            If PlotLayout.Name <> "Model" Then
+
+                    ThisDrawing.Activelayout = PlotLayout
+                    
+                    
+                    
+                    Select Case PLOTTER
+                    
+                    
+                    
+    
+                        Case "KLEUR_PLOT"
+                            
+                            
+                            
+
+                            plotstyle_oud = PlotLayout.StyleSheet
+                            
+  
+                            Set PtObj = ThisDrawing.Plot
+                            Set PtConfigs = ThisDrawing.PlotConfigurations
+                            PlotLayout.GetPaperSize PaperWidth, PaperHeight
+                            
+           
+                            PtConfigs.Add "KLEUR_PLOT", True
+                
+                            Set PlotConfig = PtConfigs.Item("KLEUR_PLOT")
+                            
+                            PlotConfig.GetPaperSize PaperWidth, PaperHeight
+
+                            PlotConfig.ConfigName = "KLEUR_PLOT_01.pc3"
+
+                            PlotConfig.StyleSheet = "A&T_kleur.ctb"
+
+                            BackPlot = ThisDrawing.GetVariable("BACKGROUNDPLOT")
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", 0
+
+                            
+                            Call PtObj.PlotToFile(bestandsnaam, PlotConfig.ConfigName)
+                            ThisDrawing.Plot.PlotToDevice "KLEUR_PLOT_01.pc3"
+
+                            PtConfigs.Item("KLEUR_PLOT").Delete
+                            Set PlotConfig = Nothing
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", BackPlot
+
+
+                            
+                            PlotLayout.StyleSheet = plotstyle_oud
+                            
+                            
+                            
+                            
+                            
+                        Case "ZWART_PLOT"
+                            
+                                                    plotstyle_oud = PlotLayout.StyleSheet
+                            
+  
+                            Set PtObj = ThisDrawing.Plot
+                            Set PtConfigs = ThisDrawing.PlotConfigurations
+                            PlotLayout.GetPaperSize PaperWidth, PaperHeight
+                            
+           
+                            PtConfigs.Add "ZWART_PLOT", True
+                
+                            Set PlotConfig = PtConfigs.Item("ZWART_PLOT")
+                            
+                            PlotConfig.GetPaperSize PaperWidth, PaperHeight
+
+                            PlotConfig.ConfigName = "ZWART_PLOT_01.pc3"
+
+                            PlotConfig.StyleSheet = "A&T_gray.ctb"
+
+                            BackPlot = ThisDrawing.GetVariable("BACKGROUNDPLOT")
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", 0
+
+                            
+                            Call PtObj.PlotToFile(bestandsnaam, PlotConfig.ConfigName)
+                            ThisDrawing.Plot.PlotToDevice "ZWART_PLOT_01.pc3"
+
+                            PtConfigs.Item("ZWART_PLOT").Delete
+                            Set PlotConfig = Nothing
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", BackPlot
+
+
+                            
+                            PlotLayout.StyleSheet = plotstyle_oud
+                        
+                        Case "PDF"
+                        
+                            bestandsnaam = (Replace(ThisDrawing.FullName, ".dwg", "-") & ThisDrawing.Activelayout.Name & ".pdf")
+
+                            plotstyle_oud = PlotLayout.StyleSheet
+                            
+                            Set PtObj = ThisDrawing.Plot
+                            Set PtConfigs = ThisDrawing.PlotConfigurations
+                            PlotLayout.GetPaperSize PaperWidth, PaperHeight
+
+                            PtConfigs.Add "PDF", True
+
+                            Set PlotConfig = PtConfigs.Item("PDF")
+                            PlotConfig.GetPaperSize PaperWidth, PaperHeight
+
+                            PlotConfig.ConfigName = "DWG To PDF.pc3"
+
+                            PlotConfig.StyleSheet = "A&T_gray.ctb"
+
+                            BackPlot = ThisDrawing.GetVariable("BACKGROUNDPLOT")
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", 0
+                            
+                            Call PtObj.PlotToFile(bestandsnaam, PlotConfig.ConfigName)
+
+                            PtConfigs.Item("PDF").Delete
+                            Set PlotConfig = Nothing
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", BackPlot
+
+                            PlotLayout.StyleSheet = plotstyle_oud
+                            
+                        Case "DWF"
+                        
+                            bestandsnaam = (Replace(ThisDrawing.FullName, ".dwf", "-") & ThisDrawing.Activelayout.Name & ".dwf")
+
+                            plotstyle_oud = PlotLayout.StyleSheet
+                            
+                            Set PtObj = ThisDrawing.Plot
+                            Set PtConfigs = ThisDrawing.PlotConfigurations
+                            PlotLayout.GetPaperSize PaperWidth, PaperHeight
+
+                            PtConfigs.Add "DWF", True
+
+                            Set PlotConfig = PtConfigs.Item("DWF")
+                            PlotConfig.GetPaperSize PaperWidth, PaperHeight
+
+                            PlotConfig.ConfigName = "DWF6 ePlot.pc3"
+
+                            PlotConfig.StyleSheet = "A&T_kleur.ctb"
+
+                            BackPlot = ThisDrawing.GetVariable("BACKGROUNDPLOT")
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", 0
+                            
+                            Call PtObj.PlotToFile(bestandsnaam, PlotConfig.ConfigName)
+
+                            PtConfigs.Item("DWF").Delete
+                            Set PlotConfig = Nothing
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", BackPlot
+
+                            PlotLayout.StyleSheet = plotstyle_oud
+                            
+                        Case "JPEG"
+                        
+                            bestandsnaam = (Replace(ThisDrawing.FullName, ".JPEG", "-") & ThisDrawing.Activelayout.Name & ".JPEG")
+
+                            plotstyle_oud = PlotLayout.StyleSheet
+                            
+                            Set PtObj = ThisDrawing.Plot
+                            Set PtConfigs = ThisDrawing.PlotConfigurations
+                            PlotLayout.GetPaperSize PaperWidth, PaperHeight
+
+                            PtConfigs.Add "JPEG", True
+
+                            Set PlotConfig = PtConfigs.Item("JPEG")
+                            PlotConfig.GetPaperSize PaperWidth, PaperHeight
+
+                            PlotConfig.ConfigName = "DWG TO JPEG.pc3"
+
+                            PlotConfig.StyleSheet = "A&T_kleur.ctb"
+
+                            BackPlot = ThisDrawing.GetVariable("BACKGROUNDPLOT")
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", 0
+                            
+                            Call PtObj.PlotToFile(bestandsnaam, PlotConfig.ConfigName)
+
+                            PtConfigs.Item("JPEG").Delete
+                            Set PlotConfig = Nothing
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", BackPlot
+
+                            PlotLayout.StyleSheet = plotstyle_oud
+                        
+                        Case "TIFF"
+                        
+                            bestandsnaam = (Replace(ThisDrawing.FullName, ".TIFF", "-") & ThisDrawing.Activelayout.Name & ".TIFF")
+
+                            plotstyle_oud = PlotLayout.StyleSheet
+                            
+                            
+                            
+                            Set PtObj = ThisDrawing.Plot
+                            Set PtConfigs = ThisDrawing.PlotConfigurations
+                            
+                            
+                            
+                            
+                            'PlotLayout.GetPaperSize PaperWidth, PaperHeight
+                            'PaperWidth = ((PaperWidth) / 25.4) * 600
+                            'PaperHeight = ((PaperHeight) / 25.4) * 600
+                            'PlotConfig.GetPaperSize PaperWidth, PaperHeight
+                            
+                            PlotConfig.RefreshPlotDeviceInfo
+                            
+                            PtConfigs.Add "TIFF", True
+
+                            Set PlotConfig = PtConfigs.Item("TIFF")
+                            
+                            
+                            
+                            
+                            PlotConfig.ConfigName = "DWG TO TIFF.pc3"
+                            PlotConfig.RefreshPlotDeviceInfo
+                            'PlotConfig.GetPaperSize PaperWidth, PaperHeight
+                            
+                            
+
+                            PlotConfig.StyleSheet = "A&T_kleur.ctb"
+
+                            BackPlot = ThisDrawing.GetVariable("BACKGROUNDPLOT")
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", 0
+                            
+                            PlotConfig.RefreshPlotDeviceInfo
+                            
+                            Call PtObj.PlotToFile(bestandsnaam, PlotConfig.ConfigName)
+
+                            PtConfigs.Item("TIFF").Delete
+                            Set PlotConfig = Nothing
+                            ThisDrawing.SetVariable "BACKGROUNDPLOT", BackPlot
+
+                            PlotLayout.StyleSheet = plotstyle_oud
+                            
+                            
+                        End Select
+
+
+
+                    
+            End If
+
+        Next
+MsgBox ("ALLE LAYOUTS ZIJN GEPLOT NAAR " & PLOTTER)
+                    ThisDrawing.Utility.Prompt "*** LAYOUT " & PlotLayout.Name & " *** is doorgestuurd naar " & PLOTTER & " ***" & vbCrLf
+
+    End If
+End If
+
+ALL_PLOT.hide
+End Sub
+
+
+
+'--------------------------------------------------------------------------------------------
+'--- EINDE PLOT ROUTINES---------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+
+
+
+'--------------------------------------------------------------------------------------------
+'--- BEGIN CAD_HTML ---------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+
+
+
+
+Sub AllLayers()
+Dim AllLayers As AcadLayers
+CAD_HTML.show
+
+End Sub
+
+
+Private Sub CAD_HTML_CommandButton1_Click(AllLayers)
+
+
+
+Dim nFile As Integer
+Dim Layer As AcadLayer
+Dim dName As String
+Dim mylen As Integer
+Dim dPrefix As String
+
+'if there is an error
+On Error GoTo Err_Control
+
+'hide the dialog
+'Me.hide
+
+'get the drawing name
+dName = ThisDrawing.GetVariable("DWGNAME")
+
+'get the drawing name
+dPrefix = ThisDrawing.GetVariable("DWGPREFIX")
+
+'get the length of the filename
+mylen = Len(dName)
+
+'subtract the .DWG Extension
+mylen = mylen - 4
+
+'retrieve the drawing name
+dName = Left(dName, mylen)
+
+'get the next free file number
+nFile = FreeFile
+
+'open the html file to write to
+Open dPrefix & dName & " - AllLayers.htm" _
+For Output As #nFile
+
+'write the header
+Print #nFile, "<html><head><title> Cad Encoding - Layers to HTML</title></head> <body><h3>Layers - Drawing No : " & dPrefix & dName & "</h3><hr>"
+
+'process each layer
+For Each Layer In AllLayers
+
+'write to the HTML file
+Print #nFile, "Layer Name = " & Layer.Name & "<p>"
+
+'process next layer
+Next
+
+'write the footer
+Print #nFile, "<hr><h3>Created by CAD Encoding</h3> _</body></html>"
+
+'close the file
+Close #nFile
+
+'display message box
+MsgBox ("Layers written to HTML File :" & vbCr & _
+dPrefix & dName & " - AllLayers.htm"), , "Layers to HTML"
+
+'error control
+Exit_Here:
+  Exit Sub
+Err_Control:
+  MsgBox Err.Description
+  Resume Exit_Here
+  
+End Sub
+
+'----------------------------------------------------
+
+Private Sub CommandButton2_Click(AllLayers)
+
+End
+
+End Sub
+
+'---------------------------------------------------
+
+Private Sub UserForm_Initialize(AllLayers)
+
+Dim Layer As AcadLayer
+
+'if there is an error
+On Error GoTo Err_Control
+
+'get the layers collection
+Set AllLayers = ThisDrawing.Layers
+
+'process each layer
+For Each Layer In AllLayers
+
+    'display each layer name in the list box
+    ListBox1.AddItem Layer.Name
+    
+'process next layer
+Next
+    
+'error control
+Exit_Here:
+  Exit Sub
+  
+Err_Control:
+  MsgBox Err.Description
+  Resume Exit_Here
+    
+End Sub
+
+
+
+'--------------------------------------------------------------------------------------------
+'--- BEGIN CAD_DWF_HTML ---------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------
+
+
